@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { io } from 'socket.io-client';
-import { MessageCircle, X, Send } from 'lucide-react';
+import { MessageCircle, X, Send, Mic, MicOff, Loader2 } from 'lucide-react';
 
 
 import { getToken } from '../../services/tokenService';
@@ -12,8 +12,12 @@ const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   // Auto scroll to bottom
   const scrollToBottom = () => {
@@ -82,6 +86,68 @@ const ChatWidget = () => {
     setMessage('');
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+
+        if (audioBlob.size === 0) return;
+
+        setIsTranscribing(true);
+        try {
+          const formData = new FormData();
+          formData.append('audio', audioBlob, 'voice_query.webm');
+          formData.append('customerId', user?.id || '');
+
+          const res = await api.post('/ivr/voice-query', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+
+          if (res.data?.success && res.data.data?.transcription) {
+            const transcript = res.data.data.transcription;
+            // Send the transcribed voice message to the chat
+            if (socketRef.current) {
+              socketRef.current.emit('send_message', {
+                customerId: user.id,
+                sender: 'customer',
+                text: transcript,
+                name: user.name || 'Customer'
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Voice query transcription error:', err);
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.warn('Microphone permission denied or not supported:', err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
   return (
     <div className="fixed bottom-6 right-6 z-50">
       {/* Toggle Button */}
@@ -117,7 +183,7 @@ const ChatWidget = () => {
           <div className="flex-1 p-4 overflow-y-auto space-y-3 flex flex-col">
             {messages.length === 0 ? (
               <div className="text-center text-loft-400 text-xs my-auto">
-                Hi {user.name || 'there'}! 👋 How can we help you today? Send a message to start chatting with an agent.
+                Hi {user.name || 'there'}! 👋 How can we help you today? Send a message or tap the 🎙️ mic to speak.
               </div>
             ) : (
               messages.map((msg, index) => {
@@ -142,22 +208,62 @@ const ChatWidget = () => {
                 );
               })
             )}
+            {isTranscribing && (
+              <div className="bg-loft-800 text-copper-400 self-start rounded-2xl rounded-tl-none p-2.5 text-xs flex items-center gap-2 animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Transcribing voice with Groq AI...</span>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Recording Status Banner */}
+          {isRecording && (
+            <div className="bg-red-500/20 text-red-400 text-[11px] px-3 py-1 flex items-center justify-between border-t border-red-500/30 animate-pulse">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                Recording speech...
+              </span>
+              <span className="text-[10px] opacity-80">Tap mic to send</span>
+            </div>
+          )}
+
           {/* Form Input */}
-          <form onSubmit={handleSendMessage} className="p-3 border-t border-loft-800 flex gap-2">
+          <form onSubmit={handleSendMessage} className="p-3 border-t border-loft-800 flex items-center gap-2">
             <input
               type="text"
-              placeholder="Type your message..."
-              className="flex-1 input-field py-2 text-xs"
+              placeholder={isRecording ? 'Listening...' : 'Type your message...'}
+              disabled={isRecording}
+              className="flex-1 input-field py-2 text-xs disabled:opacity-60"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
             />
+            {/* Voice Mic Button */}
+            <button
+              type="button"
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={isTranscribing}
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                isRecording
+                  ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                  : 'bg-loft-800 hover:bg-loft-700 text-loft-300 hover:text-white'
+              }`}
+              title={isRecording ? 'Stop and send voice recording' : 'Speak your question (Voice AI)'}
+            >
+              {isTranscribing ? (
+                <Loader2 className="w-4 h-4 animate-spin text-copper-400" />
+              ) : isRecording ? (
+                <MicOff className="w-4 h-4" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </button>
+            {/* Text Send Button */}
             <button
               type="submit"
-              disabled={!message.trim()}
+              disabled={!message.trim() || isRecording}
               className="btn-primary p-2 rounded-xl disabled:opacity-50 cursor-pointer"
+              title="Send text message"
             >
               <Send className="w-4 h-4" />
             </button>
