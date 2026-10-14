@@ -3,7 +3,8 @@ import { useSelector, useDispatch } from 'react-redux';
 import { Link } from 'react-router-dom';
 import { 
   Package, CheckCircle, Wallet, MapPin, Plus, Gift, Copy, 
-  Crown, Target, Star, Leaf, Truck, Bell, Check, AlertCircle, RefreshCw, Lock, Eye, EyeOff 
+  Crown, Target, Star, Leaf, Truck, Bell, Check, AlertCircle, RefreshCw, Lock, Eye, EyeOff,
+  CreditCard, X, ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
@@ -20,6 +21,13 @@ const CustomerDashboard = () => {
   const [walletData, setWalletData] = useState(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const copyTimeoutRef = useRef(null);
+
+  // Add Funds & Razorpay modal state
+  const [showAddFundsModal, setShowAddFundsModal] = useState(false);
+  const [topupAmount, setTopupAmount] = useState('500');
+  const [isProcessingTopup, setIsProcessingTopup] = useState(false);
+  const [topupError, setTopupError] = useState('');
+  const [topupSuccess, setTopupSuccess] = useState('');
 
   // Live booking state
   const [bookings, setBookingsData] = useState([]);
@@ -335,6 +343,102 @@ const CustomerDashboard = () => {
       } catch (error) {
         console.error('Clipboard copy failed:', error);
       }
+    }
+  };
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleTopup = async (e) => {
+    if (e) e.preventDefault();
+    const amountNum = parseFloat(topupAmount);
+    if (!amountNum || isNaN(amountNum) || amountNum < 10) {
+      setTopupError('Please enter a valid amount of at least ₹10');
+      return;
+    }
+    if (amountNum > 100000) {
+      setTopupError('Maximum single deposit is ₹1,00,000');
+      return;
+    }
+
+    setTopupError('');
+    setIsProcessingTopup(true);
+
+    try {
+      const isScriptLoaded = await loadRazorpayScript();
+      if (!isScriptLoaded) {
+        setTopupError('Razorpay payment gateway failed to load. Please check your internet connection.');
+        setIsProcessingTopup(false);
+        return;
+      }
+
+      const res = await api.post('/api/wallet/create-order', { amount: amountNum });
+      const { order, keyId } = res.data;
+
+      const options = {
+        key: keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        amount: order.amount,
+        currency: order.currency || 'INR',
+        name: 'Eminence Logistics',
+        description: 'Wallet Balance Top-up',
+        order_id: order.id,
+        handler: async function (response) {
+          try {
+            await api.post('/api/wallet/verify-funds', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              amount: amountNum
+            });
+
+            await fetchWallet();
+            setShowAddFundsModal(false);
+            setTopupSuccess(`₹${amountNum.toFixed(2)} added to your wallet successfully!`);
+            setTimeout(() => setTopupSuccess(''), 6000);
+          } catch (verifyErr) {
+            console.error('Wallet Top-up Verification Error:', verifyErr);
+            setTopupError(verifyErr.response?.data?.message || 'Payment verification failed. If deducted, funds will be refunded.');
+          } finally {
+            setIsProcessingTopup(false);
+          }
+        },
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+          contact: user?.phone || '',
+        },
+        theme: {
+          color: '#b87333'
+        },
+        modal: {
+          ondismiss: function () {
+            setIsProcessingTopup(false);
+          }
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (failRes) {
+        console.error('Razorpay Payment Failed:', failRes.error);
+        setTopupError(`Payment failed: ${failRes.error?.description || 'Transaction declined'}`);
+        setIsProcessingTopup(false);
+      });
+      rzp.open();
+    } catch (err) {
+      console.error('Add Funds Order Error:', err);
+      setTopupError(err.response?.data?.message || 'Failed to initiate payment. Please try again.');
+      setIsProcessingTopup(false);
     }
   };
 
@@ -704,9 +808,116 @@ const CustomerDashboard = () => {
             </motion.div>
           )}
 
-          {/* Placeholders for new tabs */}
+          {/* Payments Tab */}
+          {activeTab === 'payments' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+              {topupSuccess && (
+                <div className="p-4 rounded-xl bg-moss-500/10 border border-moss-500/30 text-moss-400 text-sm flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{topupSuccess}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Wallet Balance Card */}
+                <div className="card p-8 bg-gradient-to-br from-loft-900 to-loft-950 border-copper-500/20 relative overflow-hidden md:col-span-2">
+                  <div className="absolute -right-10 -top-10 w-40 h-40 bg-copper-500/10 rounded-full blur-2xl"></div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-bold text-loft-300">Available Wallet Balance</h3>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-copper-500/10 border border-copper-500/20 text-copper-400 font-medium">
+                      Instant Payout & Bookings
+                    </span>
+                  </div>
+                  <div className="flex items-end gap-2 mb-6">
+                    <span className="text-4xl font-bold text-copper-400">
+                      ₹{typeof walletData?.wallet?.balance === 'number' ? walletData.wallet.balance.toFixed(2) : (walletData?.balance ?? '0.00')}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setTopupError('');
+                      setShowAddFundsModal(true);
+                    }}
+                    className="btn-primary py-2.5 px-6 w-full md:w-auto text-sm flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Funds
+                  </button>
+                </div>
+
+                {/* Quick Add Presets Card */}
+                <div className="card p-6 bg-loft-900 border-loft-800 flex flex-col justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-loft-100 mb-2">Quick Top-Up</h4>
+                    <p className="text-xs text-loft-400 mb-4">Select an amount to recharge via Razorpay</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[200, 500, 1000, 2000].map((amt) => (
+                        <button
+                          key={amt}
+                          onClick={() => {
+                            setTopupAmount(String(amt));
+                            setTopupError('');
+                            setShowAddFundsModal(true);
+                          }}
+                          className="py-2 px-3 rounded-lg text-xs font-semibold bg-loft-950/60 border border-loft-800 hover:border-copper-500 text-loft-200 transition-colors"
+                        >
+                          +₹{amt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-loft-800/60 flex items-center gap-2 text-[11px] text-loft-400">
+                    <ShieldCheck className="w-4 h-4 text-moss-400 flex-shrink-0" />
+                    <span>UPI, Cards, NetBanking</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transactions List */}
+              <div className="card p-6 bg-loft-900 border-loft-800">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-loft-50">Transaction History</h3>
+                  <button 
+                    onClick={fetchWallet} 
+                    className="p-1.5 text-loft-400 hover:text-loft-100 rounded-lg hover:bg-loft-800 transition-colors text-xs flex items-center gap-1.5"
+                    title="Refresh transactions"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+                {walletData?.wallet?.transactions?.length > 0 ? (
+                  <div className="space-y-3">
+                    {walletData.wallet.transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between p-4 rounded-lg bg-loft-950/50 border border-loft-800/50">
+                        <div>
+                          <p className="font-medium text-loft-100">{tx.description}</p>
+                          <p className="text-xs text-loft-400">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                        </div>
+                        <div className={`font-bold ${tx.type === 'CREDIT' ? 'text-moss-500' : 'text-red-500'}`}>
+                          {tx.type === 'CREDIT' ? '+' : '-'}₹{tx.amount}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-loft-400 text-sm">
+                    No transactions yet. Click &ldquo;Add Funds&rdquo; to top-up your wallet.
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Rewards Tab */}
           {activeTab === 'rewards' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+              {topupSuccess && (
+                <div className="p-4 rounded-xl bg-moss-500/10 border border-moss-500/30 text-moss-400 text-sm flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{topupSuccess}</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Wallet Balance Card */}
@@ -718,7 +929,14 @@ const CustomerDashboard = () => {
                       ₹{typeof walletData?.wallet?.balance === 'number' ? walletData.wallet.balance.toFixed(2) : (walletData?.balance ?? '0.00')}
                     </span>
                   </div>
-                  <button className="btn-primary py-2 px-6 w-full md:w-auto text-sm">
+                  <button 
+                    onClick={() => {
+                      setTopupError('');
+                      setShowAddFundsModal(true);
+                    }}
+                    className="btn-primary py-2 px-6 w-full md:w-auto text-sm flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
                     Add Funds
                   </button>
                 </div>
@@ -775,7 +993,7 @@ const CustomerDashboard = () => {
             </motion.div>
           )}
 
-          {['tracking', 'payments', 'support'].includes(activeTab) && (
+          {['tracking', 'support'].includes(activeTab) && (
              <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1175,6 +1393,153 @@ const CustomerDashboard = () => {
                   Close Details
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Add Funds to Wallet Modal */}
+        {showAddFundsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-loft-900 border border-copper-500/30 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl relative"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-loft-800 flex items-center justify-between bg-loft-950/40">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-copper-500/10 border border-copper-500/20 text-copper-400 flex items-center justify-center">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-loft-50">Add Funds to Wallet</h3>
+                    <p className="text-xs text-loft-400">Instant recharge via Razorpay</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => !isProcessingTopup && setShowAddFundsModal(false)}
+                  disabled={isProcessingTopup}
+                  className="p-2 text-loft-400 hover:text-loft-100 hover:bg-loft-800 rounded-lg transition-colors"
+                  aria-label="Close modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Form Content */}
+              <form onSubmit={handleTopup} className="p-6 space-y-5">
+                {/* Available Balance Pill */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-loft-950/60 border border-loft-800/80">
+                  <span className="text-xs text-loft-400 font-medium">Current Balance</span>
+                  <span className="text-sm font-bold text-copper-400">
+                    ₹{typeof walletData?.wallet?.balance === 'number' ? walletData.wallet.balance.toFixed(2) : (walletData?.balance ?? '0.00')}
+                  </span>
+                </div>
+
+                {/* Amount input */}
+                <div>
+                  <label className="block text-xs font-semibold text-loft-300 uppercase tracking-wider mb-2">
+                    Enter Amount (₹)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-bold text-copper-400">₹</span>
+                    <input
+                      type="number"
+                      min="10"
+                      max="100000"
+                      value={topupAmount}
+                      onChange={(e) => {
+                        setTopupAmount(e.target.value);
+                        setTopupError('');
+                      }}
+                      placeholder="e.g. 500"
+                      className="input-field pl-9 pr-4 py-3 text-xl font-bold tracking-wide"
+                      required
+                      autoFocus
+                    />
+                  </div>
+                  <span className="text-[11px] text-loft-400 mt-1 block">Min ₹10 • Max ₹1,00,000</span>
+                </div>
+
+                {/* Quick Selection Chips */}
+                <div>
+                  <label className="block text-xs font-medium text-loft-400 mb-2">Quick Presets</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[200, 500, 1000, 2000].map((preset) => (
+                      <button
+                        type="button"
+                        key={preset}
+                        onClick={() => {
+                          setTopupAmount(String(preset));
+                          setTopupError('');
+                        }}
+                        className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                          topupAmount === String(preset)
+                            ? 'bg-copper-500/20 border-copper-500 text-copper-300 shadow-sm'
+                            : 'bg-loft-950/40 border-loft-800 text-loft-300 hover:border-loft-700 hover:text-loft-100'
+                        }`}
+                      >
+                        +₹{preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Payment Options Banner */}
+                <div className="p-3.5 rounded-xl bg-loft-950/40 border border-loft-800 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-loft-200">
+                    <CreditCard className="w-4 h-4 text-copper-400" />
+                    <span>Payment Methods Available</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-[11px] text-loft-400">
+                    <span className="px-2 py-0.5 rounded bg-loft-800/60 border border-loft-700/50">UPI (GPay, PhonePe, Paytm)</span>
+                    <span className="px-2 py-0.5 rounded bg-loft-800/60 border border-loft-700/50">Credit / Debit Cards</span>
+                    <span className="px-2 py-0.5 rounded bg-loft-800/60 border border-loft-700/50">NetBanking</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] text-loft-400 pt-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-moss-400" />
+                    <span>Secured with 256-bit Razorpay encryption</span>
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {topupError && (
+                  <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{topupError}</span>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFundsModal(false)}
+                    disabled={isProcessingTopup}
+                    className="btn-secondary flex-1 py-3 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isProcessingTopup || !topupAmount || parseFloat(topupAmount) < 10}
+                    className="btn-primary flex-1 py-3 text-sm flex items-center justify-center gap-2"
+                  >
+                    {isProcessingTopup ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Opening Razorpay...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Proceed to Pay ₹{topupAmount || '0'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

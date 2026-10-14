@@ -1,5 +1,11 @@
 const { Wallet, Transaction, Customer, PromoCode, sequelize } = require('../models');
 const crypto = require('crypto');
+const Razorpay = require('razorpay');
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_mock',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'mock_secret'
+});
 
 const getWallet = async (req, res) => {
   try {
@@ -201,7 +207,178 @@ const applyReferralCode = async (req, res) => {
   }
 };
 
+/**
+ * Create a Razorpay Order for adding funds to customer wallet
+ * POST /api/wallet/create-order
+ */
+const createWalletOrder = async (req, res) => {
+  try {
+    const { amount } = req.body;
+    const parsedAmount = parseFloat(amount);
+
+    if (isNaN(parsedAmount) || parsedAmount < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Minimum top-up amount is ₹10'
+      });
+    }
+
+    if (parsedAmount > 100000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Maximum top-up amount is ₹1,00,000 per transaction'
+      });
+    }
+
+    const options = {
+      amount: Math.round(parsedAmount * 100), // amount in paise
+      currency: "INR",
+      receipt: `topup_${req.user.id.slice(0, 8)}_${Date.now()}`,
+      notes: {
+        customerId: req.user.id,
+        purpose: 'WALLET_TOPUP'
+      }
+    };
+
+    const isMock = process.env.RAZORPAY_KEY_ID === 'rzp_test_mock' || !process.env.RAZORPAY_KEY_ID;
+    if (isMock) {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({
+          success: false,
+          message: 'Payment gateway is misconfigured or disabled in production mode.'
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        order: {
+          id: 'order_mock_' + Math.floor(Math.random() * 1000000),
+          amount: options.amount,
+          currency: 'INR'
+        },
+        keyId: 'rzp_test_mock'
+      });
+    }
+
+    const order = await razorpay.orders.create(options);
+    return res.status(200).json({
+      success: true,
+      order,
+      keyId: process.env.RAZORPAY_KEY_ID
+    });
+  } catch (error) {
+    console.error('Create Wallet Order Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.error?.description || 'Server error creating payment order'
+    });
+  }
+};
+
+/**
+ * Verify Razorpay payment and credit customer wallet
+ * POST /api/wallet/verify-funds
+ */
+const verifyWalletFunds = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, amount } = req.body;
+    const parsedAmount = parseFloat(amount);
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid top-up amount is required' });
+    }
+
+    const isMock = process.env.RAZORPAY_KEY_ID === 'rzp_test_mock' || !process.env.RAZORPAY_KEY_ID;
+    if (isMock) {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({
+          success: false,
+          message: 'Mock payment verification is prohibited in production mode.'
+        });
+      }
+    } else {
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing required Razorpay verification credentials'
+        });
+      }
+
+      const sign = razorpay_order_id + "|" + razorpay_payment_id;
+      const expectedSign = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(sign.toString())
+        .digest("hex");
+
+      if (razorpay_signature !== expectedSign) {
+        return res.status(400).json({ success: false, message: 'Invalid payment signature' });
+      }
+    }
+
+    const customerId = req.user.id;
+    const paymentRef = razorpay_payment_id || `mock_pay_${Date.now()}`;
+
+    const transaction = await sequelize.transaction();
+    try {
+      // Idempotency check: don't credit twice for the same payment reference
+      const existingTx = await Transaction.findOne({
+        where: { referenceId: paymentRef },
+        transaction
+      });
+
+      let wallet = await Wallet.findOne({
+        where: { customerId },
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+
+      if (!wallet) {
+        wallet = await Wallet.create({ customerId, balance: 0.0 }, { transaction });
+      }
+
+      if (existingTx) {
+        await transaction.rollback();
+        return res.status(200).json({
+          success: true,
+          message: 'Payment already verified and credited to wallet',
+          newBalance: parseFloat(wallet.balance)
+        });
+      }
+
+      const currentBalance = parseFloat(wallet.balance) || 0;
+      const updatedBalance = Number((currentBalance + parsedAmount).toFixed(2));
+      wallet.balance = updatedBalance;
+      await wallet.save({ transaction });
+
+      const newTx = await Transaction.create({
+        walletId: wallet.id,
+        amount: parsedAmount,
+        type: 'CREDIT',
+        description: `Wallet Recharge via Razorpay`,
+        referenceId: paymentRef
+      }, { transaction });
+
+      await transaction.commit();
+
+      return res.status(200).json({
+        success: true,
+        message: `₹${parsedAmount.toFixed(2)} added to your wallet successfully!`,
+        newBalance: updatedBalance,
+        transaction: newTx
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.error('Wallet Credit Transaction Error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to update wallet balance' });
+    }
+  } catch (error) {
+    console.error('Verify Wallet Funds Error:', error);
+    return res.status(500).json({ success: false, message: 'Server error verifying payment' });
+  }
+};
+
 module.exports = {
   getWallet,
-  applyReferralCode
+  applyReferralCode,
+  createWalletOrder,
+  verifyWalletFunds
 };

@@ -60,6 +60,33 @@ const createBooking = async (req, res) => {
     }
     const bookingData = { ...req.body, customerId };
 
+    // Date & Scheduling Validation: Only allow current or future dates (validate immediately before heavy geocoding)
+    if (bookingData.date) {
+      const now = new Date();
+      const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const utcToday = now.toISOString().split('T')[0];
+      const earliestAllowed = localToday < utcToday ? localToday : utcToday;
+
+      if (typeof bookingData.date === 'string' && bookingData.date < earliestAllowed) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking date cannot be in the past. Please select today or a future date.'
+        });
+      }
+    }
+
+    if (bookingData.scheduledAt) {
+      const scheduledTimestamp = new Date(bookingData.scheduledAt).getTime();
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      if (!isNaN(scheduledTimestamp) && scheduledTimestamp < todayStart) {
+        return res.status(400).json({
+          success: false,
+          message: 'Scheduled booking date cannot be in the past. Please select today or a future date.'
+        });
+      }
+    }
+
     // 1. ESG Carbon Footprint Calculation
     const distance = parseFloat(bookingData.totalDistance) || 15.0; // fallback to 15km if not provided
     let emissionRate = 200; // grams per km default

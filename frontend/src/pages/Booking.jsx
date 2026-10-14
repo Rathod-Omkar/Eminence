@@ -35,12 +35,16 @@ const Booking = () => {
   const [voiceError, setVoiceError] = useState('');
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
   const recognitionRef = useRef(null);
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
   
   const [formData, setFormData] = useState({
     pickup: '',
     drops: [''], // Array of drop-off addresses
     totalDistance: 15, // Default 15km
-    date: '',
+    date: todayStr,
     time: '',
     goodsType: '',
     weight: '',
@@ -532,7 +536,7 @@ const Booking = () => {
                     <label className="block text-sm font-medium text-loft-200 mb-1">Date</label>
                     <div className="relative">
                       <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-loft-400" />
-                      <input required name="date" value={formData.date} onChange={handleChange} type="date" className="input-field pl-12" style={{ colorScheme: 'dark' }} />
+                      <input required name="date" min={todayStr} value={formData.date} onChange={handleChange} type="date" className="input-field pl-12" style={{ colorScheme: 'dark' }} />
                     </div>
                   </div>
                   <div>

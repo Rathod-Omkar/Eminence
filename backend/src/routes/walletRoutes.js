@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { getWallet, applyReferralCode } = require('../controllers/walletController');
+const { 
+  getWallet, 
+  applyReferralCode, 
+  createWalletOrder, 
+  verifyWalletFunds 
+} = require('../controllers/walletController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { apiLimiter } = require('../middleware/rateLimiter');
 
@@ -10,5 +15,7 @@ router.use(authMiddleware);
 
 router.get('/', getWallet);
 router.post('/referral', applyReferralCode);
+router.post('/create-order', createWalletOrder);
+router.post('/verify-funds', verifyWalletFunds);
 
 module.exports = router;
