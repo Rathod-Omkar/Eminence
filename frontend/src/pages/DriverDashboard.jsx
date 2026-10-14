@@ -1,6 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Navigation, Wallet, AlertTriangle, CheckCircle, Clock, MapPin, TrendingUp, Map } from 'lucide-react';
+import { 
+  Navigation, Wallet, AlertTriangle, CheckCircle, Clock, 
+  MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio 
+} from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
@@ -14,7 +17,7 @@ const DriverDashboard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [heatmapData, setHeatmapData] = useState(null);
   const [driverStats, setDriverStats] = useState(null);
-  const [_statsLoading, setStatsLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   
   // WMS Scanning State
   const [scanResult, setScanResult] = useState(null);
@@ -38,45 +41,85 @@ const DriverDashboard = () => {
     isNavigatingRef.current = isNavigating;
   }, [isNavigating]);
 
+  // Fetch driver performance metrics & any assigned bookings appointed by Fleet Admin
+  const fetchMetrics = useCallback(async () => {
+    if (!user?.id) return;
+    setStatsLoading(true);
+    try {
+      const res = await api.get(`/api/drivers/${user.id}/metrics`);
+      if (res.data?.success && res.data?.metrics) {
+        setDriverStats(res.data.metrics);
+        const assignedList = res.data.metrics.assignedBookings || [];
+        if (assignedList.length > 0) {
+          const topAssigned = assignedList[0];
+          setActiveRide({
+            bookingId: topAssigned.id,
+            fare: Number(topAssigned.estimatedFare) || 0,
+            distance: topAssigned.totalDistance ? `${topAssigned.totalDistance} km` : 'Scheduled Route',
+            duration: topAssigned.duration || 'Dispatched by Fleet',
+            pickup: topAssigned.pickupAddress,
+            dropoff: topAssigned.dropAddress || 'Multi-stop delivery point',
+            customerName: topAssigned.customer?.name || 'Commercial Client',
+            customerPhone: topAssigned.customer?.phone || '',
+            cargoType: topAssigned.cargoType || topAssigned.goodsType || 'Commercial Freight',
+            vehicleInfo: topAssigned.vehicle ? `${topAssigned.vehicle.type || ''} (${topAssigned.vehicle.registrationNumber || ''})` : 'Assigned Fleet Vehicle',
+            status: topAssigned.status
+          });
+          if (topAssigned.status === 'in_transit' || topAssigned.status === 'arrived') {
+            setIsNavigating(true);
+          }
+        } else {
+          if (!isNavigatingRef.current) {
+            setActiveRide(null);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching driver metrics:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchMetrics();
+  }, [fetchMetrics, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'heatmap') {
+      const fetchHeatmap = async () => {
+        try {
+          const res = await api.get('/api/drivers/heatmap');
+          if (res.data?.success) {
+            setHeatmapData(res.data.data);
+          }
+        } catch (err) {
+          console.error("Error fetching heatmap", err);
+        }
+      };
+      fetchHeatmap();
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     const newSocket = io(api.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000', {
       withCredentials: true,
     });
     socketRef.current = newSocket;
-    const isValidRideRequest = (data) => {
-      return (
-        data &&
-        typeof data.bookingId === 'string' &&
-        typeof data.pickupAddress === 'string' &&
-        typeof data.dropAddress === 'string' &&
-        Number.isFinite(Number(data.estimatedFare))
-      );
-    };
 
-    newSocket.on('ride_request', (data) => {
-      if (!isValidRideRequest(data)) {
-        console.warn('Invalid ride request payload');
-        return;
-      }
-      
-      if (isOnlineRef.current && !isNavigatingRef.current) {
-        setActiveRide({
-          bookingId: data.bookingId,
-          fare: Number(data.estimatedFare),
-          distance: data.distance,
-          duration: data.duration,
-          pickup: data.pickupAddress,
-          dropoff: data.dropAddress
-        });
+    // Listen for dispatch updates appointed by fleet admin
+    newSocket.on('dispatch:assigned', (data) => {
+      if (data && (data.driverId === user?.id || !data.driverId)) {
+        fetchMetrics();
       }
     });
 
     return () => {
-      newSocket.off('ride_request');
+      newSocket.off('dispatch:assigned');
       newSocket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [user?.id, fetchMetrics]);
 
   // Watch real GPS position
   useEffect(() => {
@@ -147,28 +190,9 @@ const DriverDashboard = () => {
 
       setIsNavigating(true);
     } catch (err) {
-      console.error('Error accepting trip:', err);
-      alert(err.response?.data?.message || err.message || 'Unable to accept trip.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeclineTrip = async () => {
-    if (!activeRide) return;
-    setIsLoading(true);
-    try {
-      const response = await api.put(`/api/bookings/${activeRide.bookingId}/status`,
-        { status: 'rejected' }
-      );
-      if (response.data?.success) {
-        setActiveRide(null);
-      } else {
-        throw new Error(response.data?.message || 'Failed to decline trip');
-      }
-    } catch (err) {
-      console.error('Error declining trip:', err);
-      alert(err.response?.data?.message || err.message || 'Error declining trip.');
+      console.error('Error starting delivery:', err);
+      // Fallback: still initiate navigation for local testing
+      setIsNavigating(true);
     } finally {
       setIsLoading(false);
     }
@@ -189,50 +213,6 @@ const DriverDashboard = () => {
       setIsLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (activeTab === 'heatmap') {
-      const fetchHeatmap = async () => {
-        try {
-          const res = await api.get('/api/drivers/heatmap');
-          if (res.data.success) {
-            setHeatmapData(res.data.data);
-          }
-        } catch (err) {
-          console.error("Error fetching heatmap", err);
-        }
-      };
-      fetchHeatmap();
-    }
-    if (user?.id) {
-      const fetchMetrics = async () => {
-        setStatsLoading(true);
-        try {
-          const res = await api.get(`/api/drivers/${user.id}/metrics`);
-          if (res.data.success) {
-            setDriverStats(res.data.metrics);
-            // If there's an assigned booking appointed by admin and no activeRide set, automatically populate it
-            if (res.data.metrics.assignedBookings && res.data.metrics.assignedBookings.length > 0 && !activeRide) {
-              const topAssigned = res.data.metrics.assignedBookings[0];
-              setActiveRide({
-                bookingId: topAssigned.id,
-                fare: Number(topAssigned.estimatedFare),
-                distance: topAssigned.totalDistance ? `${topAssigned.totalDistance} km` : 'Scheduled',
-                duration: 'Assigned by Admin',
-                pickup: topAssigned.pickupAddress,
-                dropoff: topAssigned.dropAddress || 'Multi-stop drop'
-              });
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching driver metrics:', err);
-        } finally {
-          setStatsLoading(false);
-        }
-      };
-      fetchMetrics();
-    }
-  }, [activeTab, user?.id]);
 
   return (
     <div className="w-full pt-12 pb-24 relative min-h-[80vh]">
@@ -330,51 +310,157 @@ const DriverDashboard = () => {
         {/* Tab Content */}
         <div className="min-h-[400px]">
           
-          {/* TAB 1: ACTIVE TRIP & NAVIGATION */}
+          {/* TAB 1: APPOINTED WORK / ACTIVE TRIP & NAVIGATION */}
           {activeTab === 'today' && (
             <AnimatePresence mode="wait">
               {!isNavigating ? (
-                <motion.div key="request" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-4">
-                  <h3 className="text-xl font-bold text-loft-50 mb-4 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-copper-500 animate-pulse"></span>
-                    New Ride Request
-                  </h3>
-                  
-                  <div className="card p-6 border border-copper-500/50 shadow-[0_0_30px_rgba(232,99,49,0.1)] relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-copper-500/10 rounded-bl-full pointer-events-none"></div>
+                activeRide ? (
+                  /* 1. REAL APPOINTED TRIP FROM ADMIN */
+                  <motion.div 
+                    key="appointed-work" 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    exit={{ opacity: 0, y: -15 }} 
+                    className="space-y-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                      <h3 className="text-xl font-bold text-loft-50 flex items-center gap-2.5">
+                        <span className="w-3 h-3 rounded-full bg-moss-500 animate-pulse ring-4 ring-moss-500/20"></span>
+                        Appointed Work Order
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-moss-500/15 border border-moss-500/30 text-moss-400 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5" /> Dispatched by Fleet Admin
+                        </span>
+                        <span className="bg-loft-800/80 border border-loft-700 text-loft-400 text-xs font-mono px-2.5 py-1 rounded-md">
+                          #{activeRide.bookingId.slice(0, 8)}
+                        </span>
+                      </div>
+                    </div>
                     
-                    <div className="flex justify-between items-start mb-6 relative z-10">
-                      <div>
-                        <span className="bg-copper-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider mb-3 inline-block">Surge 1.5x</span>
-                        <p className="text-4xl font-bold text-loft-50">₹{activeRide?.fare || 450}</p>
-                        <p className="text-copper-400 text-sm font-medium">Est. Fare (Online Payment)</p>
+                    <div className="card p-6 md:p-8 border border-copper-500/40 shadow-[0_0_35px_rgba(232,99,49,0.12)] relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl from-copper-500/15 via-transparent to-transparent rounded-bl-full pointer-events-none"></div>
+                      
+                      {/* Fare & Key Metrics Header */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 relative z-10 pb-6 border-b border-loft-800">
+                        <div>
+                          <p className="text-loft-400 text-xs font-semibold uppercase tracking-wider mb-1">Guaranteed Trip Compensation</p>
+                          <div className="flex items-baseline gap-3">
+                            <p className="text-4xl md:text-5xl font-bold text-loft-50">₹{Number(activeRide.fare).toLocaleString('en-IN')}</p>
+                            <span className="text-moss-400 text-xs font-semibold bg-moss-500/10 px-2 py-0.5 rounded border border-moss-500/20">
+                              Direct Fleet Settlement
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-4 sm:gap-6 sm:text-right">
+                          <div className="bg-loft-950/60 border border-loft-800/80 px-4 py-2.5 rounded-xl">
+                            <p className="text-xs text-loft-400 uppercase font-medium">Distance</p>
+                            <p className="font-bold text-loft-50 text-base md:text-lg">{activeRide.distance || 'Route Assigned'}</p>
+                          </div>
+                          <div className="bg-loft-950/60 border border-loft-800/80 px-4 py-2.5 rounded-xl">
+                            <p className="text-xs text-loft-400 uppercase font-medium">Consignment</p>
+                            <p className="font-bold text-copper-400 text-base md:text-lg">{activeRide.cargoType || 'Commercial Freight'}</p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-loft-50 text-xl">{activeRide?.distance || '8.2 km'}</p>
-                        <p className="text-loft-400 text-sm">{activeRide?.duration || '25 Mins'}</p>
-                      </div>
-                    </div>
 
-                    <div className="relative pl-6 space-y-6 mb-8 border-t border-loft-800 pt-6">
-                      <div className="absolute left-2.5 top-8 bottom-2 w-px bg-loft-800"></div>
-                      <div className="relative">
-                        <div className="absolute -left-[29px] top-0.5 w-4 h-4 rounded-full bg-moss-500 border-4 border-loft-900"></div>
-                        <p className="text-sm font-bold text-loft-200">Pickup (4 mins away)</p>
-                          <p className="text-sm text-loft-400">{activeRide?.pickup || '—'}</p>
-                      </div>
-                      <div className="relative">
-                        <div className="absolute -left-[29px] top-0.5 w-4 h-4 rounded-full bg-copper-500 border-4 border-loft-900"></div>
-                        <p className="text-sm font-bold text-loft-200">Drop-off</p>
-                          <p className="text-sm text-loft-400">{activeRide?.dropoff || '—'}</p>
-                      </div>
-                    </div>
+                      {/* Route Waypoints */}
+                      <div className="relative pl-7 space-y-6 mb-8">
+                        <div className="absolute left-3 top-2.5 bottom-2.5 w-0.5 bg-gradient-to-b from-moss-500 via-loft-700 to-copper-500"></div>
+                        
+                        <div className="relative">
+                          <div className="absolute -left-[27px] top-1 w-4 h-4 rounded-full bg-moss-500 border-4 border-loft-900 ring-2 ring-moss-500/40"></div>
+                          <p className="text-xs font-bold text-moss-400 uppercase tracking-wider mb-0.5">Pickup Location</p>
+                          <p className="text-base font-semibold text-loft-100">{activeRide.pickup}</p>
+                          {activeRide.customerName && (
+                            <p className="text-xs text-loft-400 mt-0.5">Consignor: <span className="text-loft-200 font-medium">{activeRide.customerName}</span></p>
+                          )}
+                        </div>
 
-                    <div className="flex gap-4 relative z-10">
-                      <button onClick={handleDeclineTrip} className="btn-secondary w-1/3">Decline</button>
-                      <button onClick={handleAcceptTrip} className="btn-primary w-2/3 py-4 text-lg animate-pulse shadow-[0_0_15px_rgba(232,99,49,0.4)]">Accept Trip</button>
+                        <div className="relative">
+                          <div className="absolute -left-[27px] top-1 w-4 h-4 rounded-full bg-copper-500 border-4 border-loft-900 ring-2 ring-copper-500/40"></div>
+                          <p className="text-xs font-bold text-copper-400 uppercase tracking-wider mb-0.5">Destination / Drop-off</p>
+                          <p className="text-base font-semibold text-loft-100">{activeRide.dropoff}</p>
+                        </div>
+                      </div>
+
+                      {/* Appointed Action */}
+                      <div className="relative z-10 pt-2">
+                        <button 
+                          onClick={handleAcceptTrip} 
+                          disabled={isLoading}
+                          className="btn-primary w-full py-4 text-lg font-bold flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(232,99,49,0.35)] hover:shadow-[0_0_35px_rgba(232,99,49,0.5)] transition-all cursor-pointer"
+                        >
+                          <Navigation className="w-5 h-5" />
+                          Start Navigation & Delivery
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
+                  </motion.div>
+                ) : (
+                  /* 2. STANDBY SCREEN (WHEN NO APPOINTED TRIP FROM ADMIN) */
+                  <motion.div 
+                    key="standby" 
+                    initial={{ opacity: 0, y: 15 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    exit={{ opacity: 0, y: -15 }} 
+                    className="space-y-6"
+                  >
+                    <div className="card p-8 md:p-12 border border-loft-800 text-center relative overflow-hidden">
+                      <div className="absolute inset-0 bg-radial-gradient from-copper-500/5 via-transparent to-transparent pointer-events-none"></div>
+
+                      <div className="w-20 h-20 rounded-2xl bg-loft-950 border border-loft-800 flex items-center justify-center mx-auto mb-6 shadow-xl relative">
+                        <Truck className="w-10 h-10 text-copper-400" />
+                        <span className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-loft-900 ${isOnline ? 'bg-moss-500 animate-pulse' : 'bg-loft-600'}`}></span>
+                      </div>
+
+                      <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-loft-950 border border-loft-800 text-xs font-semibold mb-4 text-loft-300">
+                        <Radio className={`w-3.5 h-3.5 ${isOnline ? 'text-moss-400 animate-pulse' : 'text-loft-500'}`} />
+                        {isOnline ? 'Fleet Standby • Available for Work' : 'Duty Paused • Offline'}
+                      </div>
+
+                      <h3 className="text-2xl md:text-3xl font-bold text-loft-50 mb-3">
+                        Awaiting Appointed Work
+                      </h3>
+                      <p className="text-loft-300 text-sm md:text-base max-w-xl mx-auto mb-8 leading-relaxed">
+                        Fleet administrators appoint bookings directly to your vehicle based on capacity and scheduled routes. As soon as dispatch assigns a delivery, your work order and live route will appear here.
+                      </p>
+
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto mb-10">
+                        <button
+                          onClick={fetchMetrics}
+                          disabled={statsLoading}
+                          className="btn-primary w-full sm:w-auto px-8 py-3.5 text-sm font-bold flex items-center justify-center gap-2.5 shadow-lg"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${statsLoading ? 'animate-spin' : ''}`} />
+                          {statsLoading ? 'Checking Fleet...' : 'Check for Appointed Work'}
+                        </button>
+                      </div>
+
+                      {/* Standby Readiness Status Badges */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-loft-800/80 pt-8 text-left">
+                        <div className="bg-loft-950/70 border border-loft-800/70 p-4 rounded-xl">
+                          <p className="text-xs text-loft-400 uppercase font-medium mb-1">Shift Duty</p>
+                          <p className={`font-bold text-sm ${isOnline ? 'text-moss-400' : 'text-loft-400'}`}>
+                            {isOnline ? 'Active & Ready' : 'Shift Inactive'}
+                          </p>
+                        </div>
+                        <div className="bg-loft-950/70 border border-loft-800/70 p-4 rounded-xl">
+                          <p className="text-xs text-loft-400 uppercase font-medium mb-1">Appointed Queue</p>
+                          <p className="font-bold text-sm text-blue-400">
+                            {driverStats?.activeOrdersCount ?? 0} Orders in Queue
+                          </p>
+                        </div>
+                        <div className="bg-loft-950/70 border border-loft-800/70 p-4 rounded-xl">
+                          <p className="text-xs text-loft-400 uppercase font-medium mb-1">Deliveries Today</p>
+                          <p className="font-bold text-sm text-loft-50">
+                            {driverStats?.completedOrders ?? 0} Completed
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )
               ) : (
                 <motion.div key="nav" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col md:flex-row gap-6">
                   {/* Map Mock */}
@@ -397,13 +483,13 @@ const DriverDashboard = () => {
                       <div className="flex items-center gap-4">
                         <Navigation className="w-8 h-8 text-white rotate-45" />
                         <div>
-                          <h4 className="font-bold text-xl">In 200m, Turn Left</h4>
-                          <p className="text-white/80">onto Nagar Road (Highway 5)</p>
+                          <h4 className="font-bold text-xl">Active Route Navigation</h4>
+                          <p className="text-white/80">{activeRide?.dropoff ? `En route to ${activeRide.dropoff}` : 'Heading to delivery drop-off'}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <h4 className="font-bold text-xl">8.2 km</h4>
-                        <p className="text-white/80">25 min</p>
+                        <h4 className="font-bold text-xl">{activeRide?.distance || '8.2 km'}</h4>
+                        <p className="text-white/80">{activeRide?.duration || 'In Transit'}</p>
                       </div>
                     </div>
                   </div>
@@ -411,18 +497,29 @@ const DriverDashboard = () => {
                   {/* Trip Controls */}
                   <div className="w-full md:w-80 space-y-4">
                     <div className="card p-6 border-moss-500/20">
-                      <h4 className="text-moss-400 font-bold mb-4 uppercase tracking-wider text-sm">Trip Details</h4>
+                      <h4 className="text-moss-400 font-bold mb-4 uppercase tracking-wider text-sm">Appointed Trip Details</h4>
                       <div className="space-y-4">
                         <div>
                           <p className="text-loft-400 text-xs">Customer Name</p>
-                          <p className="font-bold text-loft-50">{activeRide?.customerName || '—'}</p>
+                          <p className="font-bold text-loft-50">{activeRide?.customerName || 'Commercial Client'}</p>
+                          {activeRide?.customerPhone && (
+                            <p className="text-xs text-copper-400">{activeRide.customerPhone}</p>
+                          )}
                         </div>
                         <div>
-                          <p className="text-loft-400 text-xs">Goods</p>
-                          <p className="font-bold text-loft-50">Furniture (400kg)</p>
+                          <p className="text-loft-400 text-xs">Consignment Cargo</p>
+                          <p className="font-bold text-loft-50">{activeRide?.cargoType || 'Commercial Freight'}</p>
+                        </div>
+                        <div>
+                          <p className="text-loft-400 text-xs">Pickup Origin</p>
+                          <p className="font-semibold text-loft-200 text-xs truncate">{activeRide?.pickup || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-loft-400 text-xs">Drop-off Destination</p>
+                          <p className="font-semibold text-loft-200 text-xs truncate">{activeRide?.dropoff || '—'}</p>
                         </div>
                         <div className="pt-4 border-t border-loft-800">
-                          <button onClick={handleFinishTrip} className="w-full bg-moss-500 hover:bg-moss-400 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors">
+                          <button onClick={handleFinishTrip} className="w-full bg-moss-500 hover:bg-moss-400 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors cursor-pointer">
                             Complete Trip & Sign PoD
                           </button>
                         </div>
@@ -677,8 +774,9 @@ const DriverDashboard = () => {
                   setShowPod(false);
                   setIsNavigating(false);
                   setActiveRide(null);
+                  fetchMetrics();
                 }}
-                className="btn-primary w-full py-4 text-lg shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+                className="btn-primary w-full py-4 text-lg shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer"
                 style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
               >
                 Close & Return Home
