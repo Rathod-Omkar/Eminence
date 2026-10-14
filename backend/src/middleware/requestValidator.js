@@ -128,6 +128,7 @@ const sanitizeChatMessage = (text) => {
 
 module.exports = {
   sanitizeString,
+  isValidEmail,
   validateDriver,
   validateCustomer,
   validateVehicle,
