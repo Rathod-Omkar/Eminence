@@ -12,6 +12,7 @@ const suites = [
   { name: 'Phase 4: Admin, Telematics & Enterprise', path: 'tests/phase4_admin_tests.js' },
   { name: 'Phase 5: B2B Enterprise & Reviews System', path: 'tests/phase5_b2b_review_tests.js' },
   { name: 'Phase 6: Enhancements & New Features', path: 'tests/phase6_enhancements_tests.js' },
+  { name: 'Phase 7: Route & Navigation Testing', path: 'tests/phase7_route_tests.js' },
 ];
 
 let failed = false;
@@ -33,7 +34,7 @@ if (failed) {
   process.exit(1);
 } else {
   console.log('\n================================================================');
-  console.log('🏆 ALL 36 MOBILE TESTS IN PHASES 1-6 PASSED SUCCESSFULLY!');
+  console.log('🏆 ALL 70 MOBILE UNIT & ROUTE TESTS PASSED SUCCESSFULLY (100%)!');
   console.log('================================================================\n');
   process.exit(0);
 }
