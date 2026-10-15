@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { Plus, Edit2, Trash2, X, CheckSquare, Square } from 'lucide-react';
+import { Plus, Edit2, Trash2, X } from 'lucide-react';
 import { useAdminUsers } from '../../hooks/useAdminUsers';
 
 const UsersTab = () => {
