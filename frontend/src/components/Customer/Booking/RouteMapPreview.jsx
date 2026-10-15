@@ -65,7 +65,7 @@ const FitBounds = ({ positions }) => {
 // Cache for geocoded queries
 const geocodeCache = new Map();
 
-// Helper to geocode an address string to { lat, lng }
+// Helper to geocode an address string to { lat, lng } strictly within Pune metropolitan area
 const geocodeAddress = async (query) => {
   if (!query || typeof query !== 'string' || query.trim().length < 3) return null;
   const clean = query.trim();
@@ -74,9 +74,49 @@ const geocodeAddress = async (query) => {
     return geocodeCache.get(clean);
   }
 
-  // Pre-seed known Pune landmarks for instantaneous offline responsiveness
+  const lower = clean.toLowerCase();
+
+  // 1. Live Nominatim geocoding bounded strictly to Pune & PCMC Metropolitan Region (PMRDA)
+  // Bounding box: min_lon: 73.60, max_lat: 18.85, max_lon: 74.20, min_lat: 18.30
+  try {
+    let searchParam = clean;
+    if (!lower.includes('pune') && !lower.includes('pcmc') && !lower.includes('maharashtra')) {
+      searchParam = `${clean}, Pune, Maharashtra`;
+    }
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchParam)}&viewbox=73.60,18.85,74.20,18.30&bounded=1&countrycodes=in&limit=1`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept-Language': 'en',
+        'User-Agent': 'Eminence-Transport-MVP/1.0'
+      }
+    });
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      const lat = parseFloat(data[0].lat);
+      const lng = parseFloat(data[0].lon);
+      // Validate that coordinates lie within Pune Metropolitan Area
+      if (lat >= 18.25 && lat <= 18.90 && lng >= 73.55 && lng <= 74.25) {
+        const coords = { lat, lng };
+        geocodeCache.set(clean, coords);
+        return coords;
+      }
+    }
+  } catch (err) {
+    console.warn('Live geocoding network notice:', err);
+  }
+
+  // 2. Pre-seed known distinct Pune / PCMC landmarks and localities
+  // NOTE: Generic city names like 'pune' or 'mumbai' are strictly omitted to prevent identical coordinate collapse
   const knownLocations = {
+    'brihan maharashtra': { lat: 18.5209, lng: 73.8354 },
+    'bmcc': { lat: 18.5209, lng: 73.8354 },
+    'deccan gymkhana': { lat: 18.5173, lng: 73.8415 },
+    'deccan': { lat: 18.5193, lng: 73.8341 },
+    'wagholi': { lat: 18.5806, lng: 73.9833 },
     'shivajinagar': { lat: 18.5314, lng: 73.8446 },
+    'hinjewadi phase 1': { lat: 18.5913, lng: 73.7389 },
+    'hinjewadi phase 2': { lat: 18.5870, lng: 73.7220 },
+    'hinjewadi phase 3': { lat: 18.5780, lng: 73.6990 },
     'hinjewadi': { lat: 18.5913, lng: 73.7389 },
     'kothrud': { lat: 18.5074, lng: 73.8077 },
     'viman nagar': { lat: 18.5679, lng: 73.9143 },
@@ -84,11 +124,25 @@ const geocodeAddress = async (query) => {
     'bhosari': { lat: 18.6298, lng: 73.8453 },
     'wakad': { lat: 18.5987, lng: 73.7687 },
     'baner': { lat: 18.5590, lng: 73.7868 },
-    'pune': { lat: 18.5204, lng: 73.8567 },
-    'mumbai': { lat: 19.0760, lng: 72.8777 }
+    'aundh': { lat: 18.5580, lng: 73.8075 },
+    'swargate': { lat: 18.5018, lng: 73.8586 },
+    'katraj': { lat: 18.4575, lng: 73.8677 },
+    'kharadi': { lat: 18.5516, lng: 73.9348 },
+    'kalyani nagar': { lat: 18.5477, lng: 73.9037 },
+    'magarpatta': { lat: 18.5158, lng: 73.9272 },
+    'chakan': { lat: 18.7606, lng: 73.8567 },
+    'pimpri': { lat: 18.6279, lng: 73.8009 },
+    'chinchwad': { lat: 18.6298, lng: 73.7820 },
+    'nigdi': { lat: 18.6540, lng: 73.7749 },
+    'yerawada': { lat: 18.5529, lng: 73.8797 },
+    'camp': { lat: 18.5167, lng: 73.8833 },
+    'kondhwa': { lat: 18.4740, lng: 73.8900 },
+    'karve nagar': { lat: 18.4910, lng: 73.8180 },
+    'pashan': { lat: 18.5410, lng: 73.7920 },
+    'bavdhan': { lat: 18.5120, lng: 73.7740 },
+    'fatima nagar': { lat: 18.5030, lng: 73.8980 }
   };
 
-  const lower = clean.toLowerCase();
   for (const [key, coords] of Object.entries(knownLocations)) {
     if (lower.includes(key)) {
       geocodeCache.set(clean, coords);
@@ -96,25 +150,11 @@ const geocodeAddress = async (query) => {
     }
   }
 
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(clean)}&limit=1`, {
-      headers: { 'Accept-Language': 'en' }
-    });
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      geocodeCache.set(clean, coords);
-      return coords;
-    }
-  } catch (err) {
-    console.warn('Geocoding error:', err);
-  }
-
-  // Fallback default coordinates within Pune area with pseudo offset
+  // 3. Fallback deterministic offset within Pune boundary only
   const hash = clean.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const fallback = {
-    lat: 18.5204 + ((hash % 100) - 50) * 0.001,
-    lng: 73.8567 + (((hash * 3) % 100) - 50) * 0.001
+    lat: 18.5204 + ((hash % 80) - 40) * 0.0015,
+    lng: 73.8567 + (((hash * 5) % 80) - 40) * 0.0015
   };
   geocodeCache.set(clean, fallback);
   return fallback;
@@ -123,11 +163,13 @@ const geocodeAddress = async (query) => {
 const RouteMapPreview = ({
   pickupAddress,
   dropAddresses = [],
+  pickupCoord: propPickupCoord = null,
+  dropCoords: propDropCoords = [],
   onRouteCalculated,
   className = ''
 }) => {
-  const [pickupCoord, setPickupCoord] = useState(null);
-  const [dropCoords, setDropCoords] = useState([]);
+  const [pickupCoord, setPickupCoord] = useState(propPickupCoord);
+  const [dropCoords, setDropCoords] = useState(propDropCoords || []);
   const [routePolyline, setRoutePolyline] = useState([]);
   const [routeStats, setRouteStats] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
@@ -138,9 +180,11 @@ const RouteMapPreview = ({
     let isCancelled = false;
 
     const resolveCoords = async () => {
-      // Resolve Pickup
+      // Resolve Pickup: prioritize prop coordinates if provided
       let pCoord = null;
-      if (pickupAddress) {
+      if (propPickupCoord && propPickupCoord.lat && propPickupCoord.lng) {
+        pCoord = { lat: parseFloat(propPickupCoord.lat), lng: parseFloat(propPickupCoord.lng) };
+      } else if (pickupAddress) {
         if (typeof pickupAddress === 'object' && pickupAddress.lat && pickupAddress.lng) {
           pCoord = { lat: parseFloat(pickupAddress.lat), lng: parseFloat(pickupAddress.lng) };
         } else if (typeof pickupAddress === 'string' && pickupAddress.trim()) {
@@ -148,12 +192,17 @@ const RouteMapPreview = ({
         }
       }
 
-      // Resolve Drops
+      // Resolve Drops: prioritize prop coordinates
       const dCoords = [];
       const validDrops = Array.isArray(dropAddresses) ? dropAddresses.filter(d => (typeof d === 'string' ? d.trim().length > 0 : Boolean(d))) : [];
       
-      for (const drop of validDrops) {
-        if (typeof drop === 'object' && drop?.lat && drop?.lng) {
+      for (let idx = 0; idx < validDrops.length; idx++) {
+        const drop = validDrops[idx];
+        const propCoord = Array.isArray(propDropCoords) ? propDropCoords[idx] : null;
+
+        if (propCoord && propCoord.lat && propCoord.lng) {
+          dCoords.push({ lat: parseFloat(propCoord.lat), lng: parseFloat(propCoord.lng) });
+        } else if (typeof drop === 'object' && drop?.lat && drop?.lng) {
           dCoords.push({ lat: parseFloat(drop.lat), lng: parseFloat(drop.lng) });
         } else if (typeof drop === 'string' && drop.trim()) {
           const coord = await geocodeAddress(drop);
@@ -172,7 +221,7 @@ const RouteMapPreview = ({
     return () => {
       isCancelled = true;
     };
-  }, [pickupAddress, JSON.stringify(dropAddresses)]);
+  }, [pickupAddress, JSON.stringify(dropAddresses), propPickupCoord, JSON.stringify(propDropCoords)]);
 
   // 2. Fetch OSRM Road Route when Pickup and at least one Drop are available
   useEffect(() => {

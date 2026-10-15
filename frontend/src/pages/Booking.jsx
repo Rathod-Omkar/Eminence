@@ -24,6 +24,8 @@ const Booking = () => {
   const [promoMessage, setPromoMessage] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState([]);
+  const [pickupCoord, setPickupCoord] = useState(null);
+  const [dropCoords, setDropCoords] = useState([]);
   
   // Fetch saved addresses for quick selection
   useEffect(() => {
@@ -220,16 +222,35 @@ const Booking = () => {
     const newDrops = [...formData.drops];
     newDrops[index] = value;
     setFormData({ ...formData, drops: newDrops });
+    setDropCoords((prev) => {
+      const copy = [...prev];
+      copy[index] = null;
+      return copy;
+    });
+  };
+
+  const handleDropSelect = (index, loc) => {
+    setDropCoords((prev) => {
+      const copy = [...prev];
+      copy[index] = { lat: loc.lat, lng: loc.lng };
+      return copy;
+    });
   };
 
   const addDrop = () => {
     setFormData({ ...formData, drops: [...formData.drops, ''] });
+    setDropCoords((prev) => [...prev, null]);
   };
 
   const removeDrop = (index) => {
     const newDrops = [...formData.drops];
     newDrops.splice(index, 1);
     setFormData({ ...formData, drops: newDrops });
+    setDropCoords((prev) => {
+      const copy = [...prev];
+      copy.splice(index, 1);
+      return copy;
+    });
   };
 
   const calculateFare = () => {
@@ -294,6 +315,12 @@ const Booking = () => {
       });
       if (!val.success) {
         setError(val.error.issues[0]?.message || 'Please complete all location fields');
+        return;
+      }
+      const cleanPickup = formData.pickup.trim().toLowerCase();
+      const isIdentical = formData.drops.some(d => d.trim().toLowerCase() === cleanPickup);
+      if (isIdentical) {
+        setError('Pickup and drop destinations cannot be identical. Please select a different delivery address.');
         return;
       }
     } else if (step === 2) {
@@ -512,8 +539,15 @@ const Booking = () => {
                   <AutocompleteLocationInput 
                     required={true}
                     value={formData.pickup}
-                    onChange={(val) => setFormData({ ...formData, pickup: val })}
-                    placeholder="Enter pickup location"
+                    onChange={(val) => {
+                      setFormData({ ...formData, pickup: val });
+                      setPickupCoord(null);
+                    }}
+                    onSelectDetails={(loc) => {
+                      setPickupCoord({ lat: loc.lat, lng: loc.lng });
+                    }}
+                    cityLimit="pune"
+                    placeholder="Enter pickup location in Pune (e.g. BMCC, Deccan)"
                     iconColor="text-moss-500"
                   />
                   {savedAddresses.length > 0 && (
@@ -527,7 +561,14 @@ const Booking = () => {
                           <button
                             key={`pickup-saved-${addr.id}`}
                             type="button"
-                            onClick={() => setFormData({ ...formData, pickup: full })}
+                            onClick={() => {
+                              setFormData({ ...formData, pickup: full });
+                              if (addr.latitude && addr.longitude) {
+                                setPickupCoord({ lat: parseFloat(addr.latitude), lng: parseFloat(addr.longitude) });
+                              } else {
+                                setPickupCoord(null);
+                              }
+                            }}
                             className="text-[11px] px-2.5 py-1 rounded-md bg-loft-900 border border-loft-700 hover:border-moss-500 text-loft-200 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
                           >
                             <span>{addr.label?.toLowerCase() === 'home' ? '🏠' : (addr.label?.toLowerCase() === 'office' ? '🏢' : '📍')}</span>
@@ -553,7 +594,9 @@ const Booking = () => {
                             required={true}
                             value={drop}
                             onChange={(val) => handleDropChange(index, val)}
-                            placeholder={`Enter drop location ${index + 1}`}
+                            onSelectDetails={(loc) => handleDropSelect(index, loc)}
+                            cityLimit="pune"
+                            placeholder={`Enter drop location ${index + 1} in Pune (e.g. Wagholi)`}
                             iconColor="text-copper-500"
                           />
                         </div>
@@ -576,7 +619,16 @@ const Booking = () => {
                           <button
                             key={`drop-saved-${addr.id}`}
                             type="button"
-                            onClick={() => handleDropChange(0, full)}
+                            onClick={() => {
+                              handleDropChange(0, full);
+                              if (addr.latitude && addr.longitude) {
+                                setDropCoords((prev) => {
+                                  const copy = [...prev];
+                                  copy[0] = { lat: parseFloat(addr.latitude), lng: parseFloat(addr.longitude) };
+                                  return copy;
+                                });
+                              }
+                            }}
                             className="text-[11px] px-2.5 py-1 rounded-md bg-loft-900 border border-loft-700 hover:border-copper-500 text-loft-200 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
                           >
                             <span>{addr.label?.toLowerCase() === 'home' ? '🏠' : (addr.label?.toLowerCase() === 'office' ? '🏢' : '📍')}</span>
@@ -600,6 +652,8 @@ const Booking = () => {
                   <RouteMapPreview
                     pickupAddress={formData.pickup}
                     dropAddresses={formData.drops}
+                    pickupCoord={pickupCoord}
+                    dropCoords={dropCoords}
                     onRouteCalculated={({ distanceKm }) => {
                       if (distanceKm && distanceKm !== formData.totalDistance) {
                         setFormData(prev => ({ ...prev, totalDistance: distanceKm }));
