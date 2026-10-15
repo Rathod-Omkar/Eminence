@@ -42,10 +42,11 @@ const getWallet = async (req, res) => {
     return res.status(200).json({
       success: true,
       wallet: {
-        balance: wallet.balance,
+        balance: parseFloat(wallet.balance) || 0,
         currency: wallet.currency,
         transactions: wallet.transactions || []
       },
+      balance: parseFloat(wallet.balance) || 0,
       referralCode: customer.referralCode,
       referredBy: customer.referredBy
     });

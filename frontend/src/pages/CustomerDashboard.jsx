@@ -346,6 +346,12 @@ const CustomerDashboard = () => {
     }
   };
 
+  const getDisplayBalance = () => {
+    const raw = walletData?.wallet?.balance ?? walletData?.balance ?? 0;
+    const num = parseFloat(raw);
+    return isNaN(num) ? '0.00' : num.toFixed(2);
+  };
+
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       if (window.Razorpay) {
@@ -830,7 +836,7 @@ const CustomerDashboard = () => {
                   </div>
                   <div className="flex items-end gap-2 mb-6">
                     <span className="text-4xl font-bold text-copper-400">
-                      ₹{typeof walletData?.wallet?.balance === 'number' ? walletData.wallet.balance.toFixed(2) : (walletData?.balance ?? '0.00')}
+                      ₹{getDisplayBalance()}
                     </span>
                   </div>
                   <button 
@@ -926,7 +932,7 @@ const CustomerDashboard = () => {
                   <h3 className="text-lg font-bold text-loft-300 mb-2">Available Balance</h3>
                   <div className="flex items-end gap-2 mb-6">
                     <span className="text-4xl font-bold text-copper-400">
-                      ₹{typeof walletData?.wallet?.balance === 'number' ? walletData.wallet.balance.toFixed(2) : (walletData?.balance ?? '0.00')}
+                      ₹{getDisplayBalance()}
                     </span>
                   </div>
                   <button 
@@ -1434,7 +1440,7 @@ const CustomerDashboard = () => {
                 <div className="flex items-center justify-between p-3 rounded-xl bg-loft-950/60 border border-loft-800/80">
                   <span className="text-xs text-loft-400 font-medium">Current Balance</span>
                   <span className="text-sm font-bold text-copper-400">
-                    ₹{typeof walletData?.wallet?.balance === 'number' ? walletData.wallet.balance.toFixed(2) : (walletData?.balance ?? '0.00')}
+                    ₹{getDisplayBalance()}
                   </span>
                 </div>
 
