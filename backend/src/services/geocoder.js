@@ -1,13 +1,20 @@
 const axios = require('axios');
 
+const geocodeCache = new Map();
+
 /**
- * Geocode an address using OpenStreetMap's Nominatim API.
+ * Geocode an address using OpenStreetMap's Nominatim API with in-memory caching.
  * @param {string} address - The text address to geocode.
  * @returns {Promise<{lat: number, lng: number, label: string} | null>}
  */
 const geocodeAddress = async (address) => {
   if (!address || typeof address !== 'string' || address.trim().length === 0) {
     return null;
+  }
+
+  const key = address.trim().toLowerCase();
+  if (geocodeCache.has(key)) {
+    return geocodeCache.get(key);
   }
 
   try {
@@ -26,11 +33,13 @@ const geocodeAddress = async (address) => {
 
     if (response.data && response.data.length > 0) {
       const match = response.data[0];
-      return {
+      const result = {
         lat: parseFloat(match.lat),
         lng: parseFloat(match.lon),
         label: match.display_name,
       };
+      geocodeCache.set(key, result);
+      return result;
     }
     return null;
   } catch (error) {
@@ -42,3 +51,4 @@ const geocodeAddress = async (address) => {
 module.exports = {
   geocodeAddress,
 };
+

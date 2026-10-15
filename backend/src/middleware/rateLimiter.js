@@ -1,9 +1,11 @@
 const rateLimit = require('express-rate-limit');
 
+const isLoadTest = process.env.SKIP_RATE_LIMIT === 'true' || process.env.LOAD_TEST === 'true';
+
 // General API rate limiter
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 2000 : 100, // Relaxed in test/dev for automated test runners
+  max: isLoadTest ? 100000 : (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 2000 : 100), // Relaxed in test/dev for automated test runners
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   message: {
@@ -15,7 +17,7 @@ const apiLimiter = rateLimit({
 // Stricter limiter for auth / sensitive routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 200 : 30, // Relaxed in test/dev for automated test runners
+  max: isLoadTest ? 100000 : (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 2000 : 30), // Relaxed in test/dev for automated test runners
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -26,7 +28,7 @@ const authLimiter = rateLimit({
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: isLoadTest ? 10000 : 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -37,7 +39,7 @@ const otpLimiter = rateLimit({
 
 const bookingsLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: isLoadTest ? 100000 : (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development' ? 2000 : 100), // limit each IP per windowMs
   standardHeaders: true,
   legacyHeaders: false,
   message: {

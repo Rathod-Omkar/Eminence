@@ -25,9 +25,9 @@ if (!useSqlite && dbUrl) {
     protocol: 'postgres',
     logging: false,
     pool: {
-      max: 10,
-      min: 0,
-      acquire: 30000,
+      max: 35,
+      min: 5,
+      acquire: 60000,
       idle: 10000
     },
     retry: {
