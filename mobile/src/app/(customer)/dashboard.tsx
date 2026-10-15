@@ -69,11 +69,19 @@ export default function CustomerDashboard() {
         if (!q.toLowerCase().includes('pune')) {
           q = `${q}, Pune`;
         }
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&countrycodes=in&limit=4&viewbox=73.70,18.65,74.05,18.40&bounded=1`, {
-          headers: { 'Accept-Language': 'en' }
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(q)}&countrycodes=in&limit=5&viewbox=73.60,18.85,74.20,18.30&bounded=1`, {
+          headers: {
+            'Accept-Language': 'en',
+            'User-Agent': 'Eminence-Transport-MVP/1.0'
+          }
         });
         const data = await res.json();
-        setAddressSuggestions(data || []);
+        const filtered = Array.isArray(data) ? data.filter((item: any) => {
+          const lat = parseFloat(item.lat);
+          const lon = parseFloat(item.lon);
+          return lat >= 18.25 && lat <= 18.90 && lon >= 73.55 && lon <= 74.25;
+        }) : [];
+        setAddressSuggestions(filtered);
       } catch (err) {
         console.log('Address suggestion fetch error:', err);
       } finally {

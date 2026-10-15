@@ -38,6 +38,7 @@ export default function BookScreen() {
   const [roadDistanceKm, setRoadDistanceKm] = useState<number>(0);
   const [roadDurationMin, setRoadDurationMin] = useState<number>(0);
   const [isCalculatingRoute, setIsCalculatingRoute] = useState<boolean>(false);
+  const [scopeWarning, setScopeWarning] = useState<string | null>(null);
 
   useEffect(() => {
     api.get('/api/address').then((res) => {
@@ -49,26 +50,87 @@ export default function BookScreen() {
     }).catch(() => {});
   }, []);
 
-  // Live OSRM Road Route Calculation
+  // Known Pune Localities & Landmarks Mapping (zero-latency, distinct coordinates)
+  const knownPuneLocations: Record<string, { lat: number; lon: number }> = {
+    'bmcc': { lat: 18.5209, lon: 73.8354 },
+    'brihan maharashtra': { lat: 18.5209, lon: 73.8354 },
+    'deccan': { lat: 18.5173, lon: 73.8415 },
+    'deccan gymkhana': { lat: 18.5173, lon: 73.8415 },
+    'wagholi': { lat: 18.5806, lon: 73.9833 },
+    'hinjewadi': { lat: 18.5913, lon: 73.7389 },
+    'hadapsar': { lat: 18.5089, lon: 73.9260 },
+    'viman nagar': { lat: 18.5679, lon: 73.9143 },
+    'kothrud': { lat: 18.5074, lon: 73.8077 },
+    'baner': { lat: 18.5590, lon: 73.7868 },
+    'wakad': { lat: 18.5987, lon: 73.7688 },
+    'kharadi': { lat: 18.5516, lon: 73.9349 },
+    'chakan': { lat: 18.7606, lon: 73.8636 },
+    'bhosari': { lat: 18.6279, lon: 73.8447 },
+    'nigdi': { lat: 18.6542, lon: 73.7663 },
+    'pcmc': { lat: 18.6298, lon: 73.7997 },
+    'pimpri': { lat: 18.6298, lon: 73.7997 },
+    'chinchwad': { lat: 18.6298, lon: 73.7997 },
+    'katraj': { lat: 18.4575, lon: 73.8677 },
+    'swargate': { lat: 18.5018, lon: 73.8586 },
+    'shivajinagar': { lat: 18.5314, lon: 73.8446 },
+    'magarpatta': { lat: 18.5146, lon: 73.9288 },
+    'aundh': { lat: 18.5580, lon: 73.8075 },
+    'kondhwa': { lat: 18.4739, lon: 73.8938 },
+    'senapati bapat': { lat: 18.5323, lon: 73.8315 },
+    'sb road': { lat: 18.5323, lon: 73.8315 },
+    'fc road': { lat: 18.5246, lon: 73.8419 },
+    'fergusson': { lat: 18.5246, lon: 73.8419 },
+    'camp': { lat: 18.5134, lon: 73.8791 },
+    'koregaon park': { lat: 18.5362, lon: 73.8940 },
+    'yerwada': { lat: 18.5529, lon: 73.8797 },
+    'alandi': { lat: 18.6775, lon: 73.8967 },
+    'tathawade': { lat: 18.6161, lon: 73.7483 },
+    'ravet': { lat: 18.6473, lon: 73.7381 },
+    'bavdhan': { lat: 18.5113, lon: 73.7715 },
+    'warje': { lat: 18.4842, lon: 73.7996 },
+    'sinhagad': { lat: 18.4485, lon: 73.8262 },
+    'dhanori': { lat: 18.5866, lon: 73.8878 },
+    'lohegaon': { lat: 18.5982, lon: 73.9189 }
+  };
+
+  // Live OSRM Road Route Calculation bounded strictly to Pune & PCMC Metropolitan (PMRDA)
   useEffect(() => {
     if (!pickup || pickup.trim().length < 3 || !drops[0] || drops[0].trim().length < 3) {
       setRoadDistanceKm(0);
       setRoadDurationMin(0);
+      setScopeWarning(null);
       return;
     }
 
     const timer = setTimeout(async () => {
       setIsCalculatingRoute(true);
       try {
-        const geocode = async (query: string) => {
+        const geocode = async (query: string): Promise<{ lat: number; lon: number } | null> => {
+          const lower = query.toLowerCase().trim();
+          for (const [key, coord] of Object.entries(knownPuneLocations)) {
+            if (lower.includes(key)) {
+              return coord;
+            }
+          }
+
           let q = query;
           if (!q.toLowerCase().includes('pune')) q += ', Pune';
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=in&limit=1`, {
-            headers: { 'Accept-Language': 'en' }
+          const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=in&limit=3&viewbox=73.60,18.85,74.20,18.30&bounded=1`;
+          const res = await fetch(url, {
+            headers: {
+              'Accept-Language': 'en',
+              'User-Agent': 'Eminence-Transport-MVP/1.0',
+            },
           });
           const data = await res.json();
-          if (data && data[0]) {
-            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              const lat = parseFloat(item.lat);
+              const lon = parseFloat(item.lon);
+              if (lat >= 18.25 && lat <= 18.90 && lon >= 73.55 && lon <= 74.25) {
+                return { lat, lon };
+              }
+            }
           }
           return null;
         };
@@ -76,23 +138,38 @@ export default function BookScreen() {
         const start = await geocode(pickup);
         const end = await geocode(drops[0]);
 
-        if (start && end) {
-          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
-          const routeRes = await fetch(osrmUrl);
-          const routeData = await routeRes.json();
-          if (routeData.code === 'Ok' && routeData.routes?.[0]) {
-            const distKm = parseFloat((routeData.routes[0].distance / 1000).toFixed(1));
-            const durMin = Math.round(routeData.routes[0].duration / 60);
-            setRoadDistanceKm(distKm);
-            setRoadDurationMin(durMin);
-          }
+        if (!start || !end) {
+          setScopeWarning('One or more addresses are outside the Pune & PCMC service boundary. Eminence tempo operations are restricted to Pune.');
+          setRoadDistanceKm(0);
+          setRoadDurationMin(0);
+          return;
+        }
+
+        setScopeWarning(null);
+
+        // Guard against identical coordinates
+        const isSame = Math.abs(start.lat - end.lat) < 0.0005 && Math.abs(start.lon - end.lon) < 0.0005;
+        if (isSame) {
+          setRoadDistanceKm(0);
+          setRoadDurationMin(0);
+          return;
+        }
+
+        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
+        const routeRes = await fetch(osrmUrl);
+        const routeData = await routeRes.json();
+        if (routeData.code === 'Ok' && routeData.routes?.[0]) {
+          const distKm = parseFloat((routeData.routes[0].distance / 1000).toFixed(1));
+          const durMin = Math.round(routeData.routes[0].duration / 60);
+          setRoadDistanceKm(distKm);
+          setRoadDurationMin(durMin);
         }
       } catch (e) {
         console.warn('OSRM routing fetch error:', e);
       } finally {
         setIsCalculatingRoute(false);
       }
-    }, 700);
+    }, 600);
 
     return () => clearTimeout(timer);
   }, [pickup, drops[0]]);
@@ -154,6 +231,11 @@ export default function BookScreen() {
     }
     if (drops.some((d) => !d.trim())) {
       setErrorMessage('Please fill in all destination drop stops');
+      return;
+    }
+    const cleanPickup = pickup.trim().toLowerCase();
+    if (drops.some((d) => d.trim().toLowerCase() === cleanPickup)) {
+      setErrorMessage('Pickup and drop destinations cannot be identical. Please select a different delivery address.');
       return;
     }
     if (!weight || parseInt(weight, 10) <= 0) {
@@ -271,14 +353,17 @@ export default function BookScreen() {
 
         {/* SECTION 1: PICKUP & MULTI-STOP DROPS */}
         <View style={styles.card}>
+          <View style={styles.serviceAreaBadge}>
+            <Text style={styles.serviceAreaBadgeText}>📍 Service Area: Pune & PCMC Metropolitan Region Only</Text>
+          </View>
           <Text style={styles.cardTitle}>📍 Route & Stops</Text>
 
-          <Text style={styles.inputLabel}>Pickup Address</Text>
+          <Text style={styles.inputLabel}>Pickup Address (Pune)</Text>
           <TextInput
             style={styles.input}
             value={pickup}
             onChangeText={setPickup}
-            placeholder="e.g. Koregaon Park, Pune"
+            placeholder="e.g. BMCC, Deccan Gymkhana, Pune"
             placeholderTextColor="#748bac"
           />
 
@@ -307,7 +392,7 @@ export default function BookScreen() {
             <View key={idx} style={{ marginTop: 12 }}>
               <View style={styles.dropHeaderRow}>
                 <Text style={styles.inputLabel}>
-                  {idx === 0 ? 'Destination Drop Address' : `Additional Stop #${idx + 1}`}
+                  {idx === 0 ? 'Destination Drop Address (Pune)' : `Additional Stop #${idx + 1}`}
                 </Text>
                 {idx > 0 && (
                   <TouchableOpacity onPress={() => removeStop(idx)}>
@@ -319,7 +404,7 @@ export default function BookScreen() {
                 style={styles.input}
                 value={dropVal}
                 onChangeText={(val) => handleDropChange(idx, val)}
-                placeholder={idx === 0 ? 'e.g. Viman Nagar, Pune' : `Stop #${idx + 1} Address`}
+                placeholder={idx === 0 ? 'e.g. Wagholi, Pune' : `Stop #${idx + 1} Address in Pune`}
                 placeholderTextColor="#748bac"
               />
 
@@ -345,6 +430,13 @@ export default function BookScreen() {
               )}
             </View>
           ))}
+
+          {/* Out of Service Boundary Warning */}
+          {scopeWarning ? (
+            <View style={styles.outOfScopeNotice}>
+              <Text style={styles.outOfScopeText}>⚠️ {scopeWarning}</Text>
+            </View>
+          ) : null}
 
           {/* OSRM Road Distance Telematics Badge */}
           {isCalculatingRoute ? (
@@ -837,5 +929,34 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginTop: 10,
+  },
+  serviceAreaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: '#10b981',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 12,
+  },
+  serviceAreaBadgeText: {
+    color: '#34d399',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  outOfScopeNotice: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+  },
+  outOfScopeText: {
+    color: '#f87171',
+    fontSize: 11,
+    lineHeight: 16,
   },
 });
