@@ -15,6 +15,8 @@ export interface User {
   termsAccepted?: boolean;
   termsVersion?: string;
   vehicleNo?: string;
+  isPro?: boolean;
+  referralCode?: string;
 }
 
 interface AuthContextType {

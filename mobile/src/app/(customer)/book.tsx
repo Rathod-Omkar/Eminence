@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -33,6 +33,70 @@ export default function BookScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Saved Addresses & Live OSRM Road Distance
+  const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
+  const [roadDistanceKm, setRoadDistanceKm] = useState<number>(0);
+  const [roadDurationMin, setRoadDurationMin] = useState<number>(0);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState<boolean>(false);
+
+  useEffect(() => {
+    api.get('/api/address').then((res) => {
+      if (res.data?.success && Array.isArray(res.data.addresses)) {
+        setSavedAddresses(res.data.addresses);
+      } else if (Array.isArray(res.data)) {
+        setSavedAddresses(res.data);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Live OSRM Road Route Calculation
+  useEffect(() => {
+    if (!pickup || pickup.trim().length < 3 || !drops[0] || drops[0].trim().length < 3) {
+      setRoadDistanceKm(0);
+      setRoadDurationMin(0);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsCalculatingRoute(true);
+      try {
+        const geocode = async (query: string) => {
+          let q = query;
+          if (!q.toLowerCase().includes('pune')) q += ', Pune';
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=in&limit=1`, {
+            headers: { 'Accept-Language': 'en' }
+          });
+          const data = await res.json();
+          if (data && data[0]) {
+            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+          }
+          return null;
+        };
+
+        const start = await geocode(pickup);
+        const end = await geocode(drops[0]);
+
+        if (start && end) {
+          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=false`;
+          const routeRes = await fetch(osrmUrl);
+          const routeData = await routeRes.json();
+          if (routeData.code === 'Ok' && routeData.routes?.[0]) {
+            const distKm = parseFloat((routeData.routes[0].distance / 1000).toFixed(1));
+            const durMin = Math.round(routeData.routes[0].duration / 60);
+            setRoadDistanceKm(distKm);
+            setRoadDurationMin(durMin);
+          }
+        }
+      } catch (e) {
+        console.warn('OSRM routing fetch error:', e);
+      } finally {
+        setIsCalculatingRoute(false);
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [pickup, drops[0]]);
+
   // Fare Estimation
   const calculateEstimatedFare = () => {
     const baseRates = { small: 350, medium: 550, large: 1100 };
@@ -47,6 +111,16 @@ export default function BookScreen() {
     const w = parseFloat(weight) || 0;
     if (w > 200) {
       total += Math.round((w - 200) * 0.5);
+    }
+
+    // Distance adjustment if road distance > 5km
+    if (roadDistanceKm > 5) {
+      total += Math.round((roadDistanceKm - 5) * 18);
+    }
+
+    // 5% Eminence Pro discount
+    if (user?.isPro) {
+      total = Math.round(total * 0.95);
     }
 
     return total;
@@ -96,6 +170,7 @@ export default function BookScreen() {
         pickupAddress: pickup.trim(),
         dropAddress: drops[0].trim(),
         drops: drops.map((d) => d.trim()),
+        totalDistance: roadDistanceKm || 12,
         tempoType,
         weight: parseInt(weight, 10),
         goodsType: goodsType.trim(),
@@ -207,6 +282,27 @@ export default function BookScreen() {
             placeholderTextColor="#748bac"
           />
 
+          {/* Quick Saved Address Chips */}
+          {savedAddresses.length > 0 && (
+            <View style={{ marginTop: 6, marginBottom: 8 }}>
+              <Text style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>Quick-select Saved Address:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                {savedAddresses.map((addr) => (
+                  <TouchableOpacity
+                    key={'pickup-' + addr.id}
+                    style={styles.addressChip}
+                    onPress={() => setPickup(`${addr.street}, ${addr.city}`)}
+                  >
+                    <Text style={styles.addressChipIcon}>
+                      {addr.label?.toLowerCase().includes('home') ? '🏠' : addr.label?.toLowerCase().includes('office') ? '🏢' : '📍'}
+                    </Text>
+                    <Text style={styles.addressChipText}>{addr.label || 'Saved'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {drops.map((dropVal, idx) => (
             <View key={idx} style={{ marginTop: 12 }}>
               <View style={styles.dropHeaderRow}>
@@ -226,8 +322,61 @@ export default function BookScreen() {
                 placeholder={idx === 0 ? 'e.g. Viman Nagar, Pune' : `Stop #${idx + 1} Address`}
                 placeholderTextColor="#748bac"
               />
+
+              {/* Quick Saved Address Chips for Drops */}
+              {savedAddresses.length > 0 && (
+                <View style={{ marginTop: 6, marginBottom: 4 }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>Quick-select Destination:</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                    {savedAddresses.map((addr) => (
+                      <TouchableOpacity
+                        key={'drop-' + idx + '-' + addr.id}
+                        style={styles.addressChip}
+                        onPress={() => handleDropChange(idx, `${addr.street}, ${addr.city}`)}
+                      >
+                        <Text style={styles.addressChipIcon}>
+                          {addr.label?.toLowerCase().includes('home') ? '🏠' : addr.label?.toLowerCase().includes('office') ? '🏢' : '📍'}
+                        </Text>
+                        <Text style={styles.addressChipText}>{addr.label || 'Saved'}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
           ))}
+
+          {/* OSRM Road Distance Telematics Badge */}
+          {isCalculatingRoute ? (
+            <View style={styles.routePill}>
+              <ActivityIndicator size="small" color="#f59e0b" style={{ marginRight: 6 }} />
+              <Text style={styles.routePillText}>Calculating road route distance via OSRM...</Text>
+            </View>
+          ) : roadDistanceKm > 0 ? (
+            <View style={styles.routeCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ fontSize: 14 }}>🛣️</Text>
+                  <Text style={{ color: '#f59e0b', fontWeight: '700', fontSize: 12 }}>Point A to Point B Route</Text>
+                </View>
+                <Text style={{ color: '#10b981', fontSize: 11, fontWeight: '700' }}>● High Precision</Text>
+              </View>
+              <View style={{ flexDirection: 'row', marginTop: 8, justifyContent: 'space-around' }}>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 10 }}>ROAD DISTANCE</Text>
+                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>{roadDistanceKm} km</Text>
+                </View>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 10 }}>DRIVE TIME</Text>
+                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>~{roadDurationMin} mins</Text>
+                </View>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 10 }}>CO₂ FOOTPRINT</Text>
+                  <Text style={{ color: '#10b981', fontSize: 15, fontWeight: '800' }}>{(roadDistanceKm * 0.12).toFixed(1)} kg</Text>
+                </View>
+              </View>
+            </View>
+          ) : null}
 
           {/* Add Stop Button (TC-012) */}
           <TouchableOpacity style={styles.addStopBtn} onPress={addStop}>
@@ -364,9 +513,25 @@ export default function BookScreen() {
             </View>
           )}
 
+          {roadDistanceKm > 0 && (
+            <View style={styles.fareRow}>
+              <Text style={styles.fareLabel}>Road Distance ({roadDistanceKm} km)</Text>
+              <Text style={styles.fareVal}>
+                {roadDistanceKm > 5 ? `+₹${Math.round((roadDistanceKm - 5) * 18)}` : 'Included'}
+              </Text>
+            </View>
+          )}
+
+          {user?.isPro && (
+            <View style={styles.fareRow}>
+              <Text style={[styles.fareLabel, { color: '#f59e0b' }]}>⭐ Eminence Pro (5% Discount)</Text>
+              <Text style={[styles.fareVal, { color: '#f59e0b' }]}>Applied</Text>
+            </View>
+          )}
+
           <View style={styles.fareRow}>
             <Text style={styles.fareLabel}>Estimated CO2 Offset</Text>
-            <Text style={styles.esgVal}>🌿 ~3.2 kg</Text>
+            <Text style={styles.esgVal}>🌿 ~{roadDistanceKm > 0 ? (roadDistanceKm * 0.12).toFixed(1) : '3.2'} kg</Text>
           </View>
 
           <View style={styles.divider} />
@@ -628,5 +793,49 @@ const styles = StyleSheet.create({
     color: '#f4f6f8',
     fontSize: 16,
     fontWeight: '700',
+  },
+  addressChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginRight: 6,
+  },
+  addressChipIcon: {
+    fontSize: 12,
+    marginRight: 4,
+  },
+  addressChipText: {
+    color: '#cbd5e1',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  routePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1e1b4b',
+    borderWidth: 1,
+    borderColor: '#6366f1',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 10,
+  },
+  routePillText: {
+    color: '#a5b4fc',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  routeCard: {
+    backgroundColor: '#161f30',
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
   },
 });

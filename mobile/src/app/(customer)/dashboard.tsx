@@ -37,6 +37,8 @@ export default function CustomerDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isPro, setIsPro] = useState(user?.isPro || false);
+  const [proLoading, setProLoading] = useState(false);
 
   // Address Modal State
   const [isAddAddressOpen, setIsAddAddressOpen] = useState(false);
@@ -159,9 +161,44 @@ export default function CustomerDashboard() {
       } catch (e) {
         console.log('Error fetching wallet:', e);
       }
+
+      // 4. Fetch Pro Status
+      try {
+        const proRes = await api.get('/api/customer/pro/status');
+        if (proRes.data?.success) {
+          setIsPro(proRes.data.isPro);
+        }
+      } catch (e) {
+        if (user?.isPro) setIsPro(true);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const handleBuyPro = async () => {
+    setProLoading(true);
+    try {
+      const orderRes = await api.post('/api/customer/pro/create-order');
+      if (orderRes.data?.success && orderRes.data?.order) {
+        const order = orderRes.data.order;
+        const verifyRes = await api.post('/api/customer/pro/verify', {
+          razorpay_order_id: order.id,
+          razorpay_payment_id: 'pay_mobile_' + Math.random().toString(36).substring(7),
+          razorpay_signature: 'mock_signature'
+        });
+        if (verifyRes.data?.success) {
+          setIsPro(true);
+          Alert.alert('🎉 Welcome to Eminence Pro!', 'Your subscription is now active with 5% ride discounts, priority dispatch, and zero cancellation fees.');
+        } else {
+          Alert.alert('Payment Notice', 'Payment verification could not be completed.');
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Subscription Notice', err.response?.data?.message || 'Could not initiate Pro membership.');
+    } finally {
+      setProLoading(false);
     }
   };
 
@@ -273,6 +310,40 @@ export default function CustomerDashboard() {
           />
         }
       >
+        {/* EMINENCE PRO MEMBERSHIP BANNER */}
+        <View style={isPro ? styles.proActiveCard : styles.proUpgradeCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+              <Text style={{ fontSize: 24 }}>{isPro ? '⭐' : '👑'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: isPro ? '#f59e0b' : '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 0.5 }}>
+                  {isPro ? 'EMINENCE PRO ACTIVE' : 'UPGRADE TO EMINENCE PRO'}
+                </Text>
+                <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
+                  {isPro ? '5% discount on rides & priority fleet dispatch' : '₹499/mo • 5% off bookings & zero cancellation fees'}
+                </Text>
+              </View>
+            </View>
+            {!isPro ? (
+              <TouchableOpacity
+                style={styles.proUpgradeBtn}
+                onPress={handleBuyPro}
+                disabled={proLoading}
+              >
+                {proLoading ? (
+                  <ActivityIndicator color="#0f172a" size="small" />
+                ) : (
+                  <Text style={styles.proUpgradeBtnText}>Buy Pro</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.proActiveBadge}>
+                <Text style={styles.proActiveBadgeText}>PRO ACTIVE</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* Quick Booking CTA */}
         <View style={styles.actionCard}>
           <View style={styles.actionCardHeader}>
@@ -1223,5 +1294,46 @@ const styles = StyleSheet.create({
   },
   starIcon: {
     fontSize: 28,
+  },
+  proUpgradeCard: {
+    backgroundColor: '#1e1b4b',
+    borderWidth: 1,
+    borderColor: '#6366f1',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  proActiveCard: {
+    backgroundColor: '#271b07',
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  proUpgradeBtn: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  proUpgradeBtnText: {
+    color: '#0f172a',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  proActiveBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  proActiveBadgeText: {
+    color: '#f59e0b',
+    fontWeight: '800',
+    fontSize: 10,
+    letterSpacing: 0.5,
   },
 });

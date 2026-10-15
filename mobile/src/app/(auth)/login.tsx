@@ -15,7 +15,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { useAuth } from '../../context/AuthContext';
 import TermsModal from '../../components/TermsModal';
-import { Eye, EyeOff } from 'lucide-react-native';
+import { Eye, EyeOff, Gift } from 'lucide-react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -31,6 +31,7 @@ export default function LoginScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(true);
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -161,7 +162,14 @@ export default function LoginScreen() {
     }
     setLoading(true);
     setErrorMessage('');
-    const res = await registerWithPassword({ name, email, phone, password, role });
+    const res = await registerWithPassword({
+      name,
+      email,
+      phone,
+      password,
+      role,
+      referralCode: referralCode.trim() ? referralCode.trim().toUpperCase() : undefined
+    });
     setLoading(false);
     if (res.success) {
       setSuccessMessage('Registration successful! Please login.');
@@ -416,6 +424,26 @@ export default function LoginScreen() {
                     {showPassword ? <EyeOff color="#a2b2c7" size={20} /> : <Eye color="#a2b2c7" size={20} />}
                   </TouchableOpacity>
                 </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Gift color="#f59e0b" size={15} />
+                  <Text style={styles.label}>Referral Code (Optional)</Text>
+                </View>
+                <TextInput
+                  style={[styles.input, { borderColor: referralCode ? '#f59e0b' : '#334155' }]}
+                  placeholder="e.g. EMINENCE-AB12CD"
+                  placeholderTextColor="#64748b"
+                  autoCapitalize="characters"
+                  value={referralCode}
+                  onChangeText={(val) => setReferralCode(val.toUpperCase())}
+                />
+                {referralCode.trim().length > 0 && (
+                  <Text style={{ color: '#f59e0b', fontSize: 11, marginTop: 4 }}>
+                    🎁 ₹100 dual-wallet bonus credited on successful registration
+                  </Text>
+                )}
               </View>
               
               <View style={styles.termsRow}>
