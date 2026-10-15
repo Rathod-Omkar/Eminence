@@ -5,6 +5,11 @@ export const useAdminUsers = () => {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   
+  // Selection state for mass delete
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({ isOpen: false });
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
   // Modal / Form state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -18,7 +23,11 @@ export const useAdminUsers = () => {
     setLoading(true);
     try {
       const res = await adminApi.getCustomers();
-      if (res.data.success) setCustomers(res.data.customers);
+      if (res.data.success) {
+        setCustomers(res.data.customers);
+        // Clear selections that no longer exist
+        setSelectedIds(new Set());
+      }
     } catch (err) {
       console.error('Error fetching customers:', err);
     } finally {
@@ -72,6 +81,43 @@ export const useAdminUsers = () => {
     }
   };
 
+  // Mass Bulk Selection Handlers
+  const toggleSelectAll = () => {
+    if (selectedIds.size === customers.length && customers.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(customers.map(c => c.id)));
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    const updated = new Set(selectedIds);
+    if (updated.has(id)) {
+      updated.delete(id);
+    } else {
+      updated.add(id);
+    }
+    setSelectedIds(updated);
+  };
+
+  const executeBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const res = await adminApi.bulkDeleteCustomers(Array.from(selectedIds));
+      if (res.data.success) {
+        setBulkDeleteConfirm({ isOpen: false });
+        setSelectedIds(new Set());
+        fetchCustomers();
+      }
+    } catch (err) {
+      console.error('Error bulk deleting customers:', err);
+      alert(err.response?.data?.message || 'Bulk delete operation failed');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   const handleSubmitForm = async (e) => {
     e.preventDefault();
     try {
@@ -90,7 +136,9 @@ export const useAdminUsers = () => {
 
   return {
     customers, loading, isModalOpen, editMode, currentItem, deleteConfirm, customerForm,
-    setCustomerForm, setIsModalOpen, setDeleteConfirm,
+    selectedIds, bulkDeleteConfirm, isBulkDeleting,
+    setCustomerForm, setIsModalOpen, setDeleteConfirm, setBulkDeleteConfirm,
+    toggleSelectAll, toggleSelectOne, executeBulkDelete,
     handleOpenCreateModal, handleOpenEditModal, handleDeleteItem, executeDelete, handleSubmitForm
   };
 };

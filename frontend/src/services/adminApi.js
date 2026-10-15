@@ -12,10 +12,12 @@ export const adminApi = {
   createCustomer: (data) => api.post('/api/admin/customers', data),
   updateCustomer: (id, data) => api.put(`/api/admin/customers/${id}`, data),
   deleteCustomer: (id) => api.delete(`/api/admin/customers/${id}`),
+  bulkDeleteCustomers: (ids) => api.post('/api/admin/customers/bulk-delete', { ids }),
   
   createDriver: (data) => api.post('/api/admin/drivers', data),
   updateDriver: (id, data) => api.put(`/api/admin/drivers/${id}`, data),
   deleteDriver: (id) => api.delete(`/api/admin/drivers/${id}`),
+  bulkDeleteDrivers: (ids) => api.post('/api/admin/drivers/bulk-delete', { ids }),
   
   createVehicle: (data) => api.post('/api/admin/vehicles', data),
   updateVehicle: (id, data) => api.put(`/api/admin/vehicles/${id}`, data),
@@ -28,6 +30,7 @@ export const adminApi = {
   createAdmin: (data) => api.post('/api/admin/admins', data),
   updateAdmin: (id, data) => api.put(`/api/admin/admins/${id}`, data),
   deleteAdmin: (id) => api.delete(`/api/admin/admins/${id}`),
+  bulkDeleteAdmins: (ids) => api.post('/api/admin/admins/bulk-delete', { ids }),
 
   // Booking assignment by Admin
   getBookings: () => api.get('/api/bookings'),

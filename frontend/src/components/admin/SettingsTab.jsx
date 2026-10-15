@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useSelector } from 'react-redux';
 import { Plus, Edit2, Trash2, ShieldAlert, DollarSign, MessageSquare, X } from 'lucide-react';
 import { adminApi } from '../../services/adminApi';
 
 const SettingsTab = () => {
+  const { user } = useSelector((state) => state.auth);
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -13,12 +15,18 @@ const SettingsTab = () => {
     name: '', email: '', password: '', role: 'Superadmin'
   });
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState({ isOpen: false });
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
   const fetchAdmins = async () => {
     setLoading(true);
     try {
       const res = await adminApi.getAdmins();
       if (res.data?.success && Array.isArray(res.data.admins)) {
         setAdmins(res.data.admins);
+        setSelectedIds(new Set());
       }
     } catch (err) {
       console.error('Error fetching admins:', err);
@@ -51,6 +59,14 @@ const SettingsTab = () => {
   };
 
   const handleDeleteAdmin = async (id) => {
+    if (admins.length <= 1) {
+      alert('Cannot delete the only existing administrator');
+      return;
+    }
+    if (user?.id && id === user.id) {
+      alert('You cannot delete your own active administrator account');
+      return;
+    }
     if (!window.confirm('Are you sure you want to delete this administrator?')) return;
     try {
       const res = await adminApi.deleteAdmin(id);
@@ -60,6 +76,52 @@ const SettingsTab = () => {
     } catch (err) {
       console.error('Delete admin error:', err);
       alert(err.response?.data?.message || 'Delete operation failed');
+    }
+  };
+
+  // Mass Bulk Selection Handlers
+  // Exclude current admin from deletable set
+  const deletableAdmins = admins.filter(a => a.id !== user?.id);
+  const isAllSelected = deletableAdmins.length > 0 && selectedIds.size === deletableAdmins.length;
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(deletableAdmins.map(a => a.id)));
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    if (id === user?.id) return; // Prevent selecting self
+    const updated = new Set(selectedIds);
+    if (updated.has(id)) {
+      updated.delete(id);
+    } else {
+      updated.add(id);
+    }
+    setSelectedIds(updated);
+  };
+
+  const executeBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (admins.length - selectedIds.size < 1) {
+      alert('Operation aborted: at least one administrator must remain active.');
+      return;
+    }
+    setIsBulkDeleting(true);
+    try {
+      const res = await adminApi.bulkDeleteAdmins(Array.from(selectedIds));
+      if (res.data?.success) {
+        setBulkDeleteConfirm({ isOpen: false });
+        setSelectedIds(new Set());
+        fetchAdmins();
+      }
+    } catch (err) {
+      console.error('Error bulk deleting admins:', err);
+      alert(err.response?.data?.message || 'Bulk delete operation failed');
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -81,14 +143,29 @@ const SettingsTab = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-loft-50 font-serif">Roles & Permissions</h1>
-        <button 
-          onClick={handleOpenCreateModal}
-          className="btn-primary flex items-center gap-2 py-2 px-4 text-sm font-semibold rounded-xl cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Add Admin
-        </button>
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-loft-50 font-serif">Roles & Permissions</h1>
+          <p className="text-xs text-loft-400 mt-1">Manage platform administrators, permissions, and security roles</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && (
+            <button
+              id="bulk-delete-admins-btn"
+              onClick={() => setBulkDeleteConfirm({ isOpen: true })}
+              className="flex items-center gap-2 py-2 px-4 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 transition-all cursor-pointer shadow-lg animate-fade-in"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Delete Selected ({selectedIds.size})</span>
+            </button>
+          )}
+          <button 
+            onClick={handleOpenCreateModal}
+            className="btn-primary flex items-center gap-2 py-2 px-4 text-sm font-semibold rounded-xl cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Add Admin
+          </button>
+        </div>
       </div>
 
       <div className="card bg-loft-900 border-loft-800 overflow-hidden">
@@ -103,6 +180,16 @@ const SettingsTab = () => {
             <table className="w-full text-left text-sm text-loft-300">
               <thead className="bg-loft-950/50 text-xs uppercase font-medium">
                 <tr>
+                  <th className="px-4 py-4 w-12 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all administrators"
+                      checked={isAllSelected}
+                      disabled={deletableAdmins.length === 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-loft-700 bg-loft-950 text-copper-500 focus:ring-copper-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    />
+                  </th>
                   <th className="px-6 py-4">Name</th>
                   <th className="px-6 py-4">Email</th>
                   <th className="px-6 py-4">Role</th>
@@ -113,46 +200,72 @@ const SettingsTab = () => {
               <tbody className="divide-y divide-loft-800">
                 {admins.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="px-6 py-8 text-center text-loft-500">
+                    <td colSpan="6" className="px-6 py-8 text-center text-loft-500">
                       No administrators found.
                     </td>
                   </tr>
                 ) : (
-                  admins.map((admin) => (
-                    <tr key={admin.id} className="hover:bg-loft-800/50 transition-colors">
-                      <td className="px-6 py-4 font-medium text-loft-100 flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-copper-500/20 text-copper-500 flex items-center justify-center font-bold">
-                          {(admin.name || 'A').charAt(0).toUpperCase()}
-                        </div>
-                        {admin.name || 'Administrator'}
-                      </td>
-                      <td className="px-6 py-4">{admin.email}</td>
-                      <td className="px-6 py-4">
-                        <span className="inline-block whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold bg-moss-500/20 text-moss-500 border border-moss-500/30">
-                          Superadmin
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : 'Active'}
-                      </td>
-                      <td className="px-6 py-4 text-right flex justify-end gap-2">
-                        <button 
-                          onClick={() => handleOpenEditModal(admin)}
-                          className="p-2 text-loft-400 hover:text-copper-500 rounded-lg hover:bg-loft-800 transition-colors cursor-pointer"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteAdmin(admin.id)}
-                          className="p-2 text-loft-400 hover:text-red-500 rounded-lg hover:bg-loft-800 transition-colors cursor-pointer"
-                          disabled={admins.length <= 1}
-                          title={admins.length <= 1 ? "Cannot delete the sole admin" : "Delete Admin"}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  admins.map((admin) => {
+                    const isSelf = user?.id === admin.id;
+                    const isSelected = selectedIds.has(admin.id);
+                    return (
+                      <tr 
+                        key={admin.id} 
+                        className={`hover:bg-loft-800/50 transition-colors ${isSelected ? 'bg-copper-500/10' : ''}`}
+                      >
+                        <td className="px-4 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${admin.name || admin.email}`}
+                            checked={isSelected}
+                            disabled={isSelf || admins.length <= 1}
+                            onChange={() => toggleSelectOne(admin.id)}
+                            className="w-4 h-4 rounded border-loft-700 bg-loft-950 text-copper-500 focus:ring-copper-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title={isSelf ? "You cannot delete your own account" : undefined}
+                          />
+                        </td>
+                        <td className="px-6 py-4 font-medium text-loft-100 flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-copper-500/20 text-copper-500 flex items-center justify-center font-bold">
+                            {(admin.name || 'A').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span>{admin.name || 'Administrator'}</span>
+                            {isSelf && (
+                              <span className="text-[10px] bg-copper-500/20 text-copper-400 px-1.5 py-0.5 rounded font-mono">
+                                YOU
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">{admin.email}</td>
+                        <td className="px-6 py-4">
+                          <span className="inline-block whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold bg-moss-500/20 text-moss-500 border border-moss-500/30">
+                            Superadmin
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : 'Active'}
+                        </td>
+                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                          <button 
+                            onClick={() => handleOpenEditModal(admin)}
+                            className="p-2 text-loft-400 hover:text-copper-500 rounded-lg hover:bg-loft-800 transition-colors cursor-pointer"
+                            title="Edit Administrator"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteAdmin(admin.id)}
+                            className="p-2 text-loft-400 hover:text-red-500 rounded-lg hover:bg-loft-800 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            disabled={admins.length <= 1 || isSelf}
+                            title={isSelf ? "Cannot delete your own account" : (admins.length <= 1 ? "Cannot delete the sole admin" : "Delete Admin")}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -180,7 +293,7 @@ const SettingsTab = () => {
           <div className="bg-loft-900 border border-loft-800 rounded-2xl max-w-md w-full p-6 sm:p-8 relative shadow-2xl max-h-[85vh] flex flex-col my-auto">
             <div className="flex justify-between items-center mb-4 shrink-0">
               <h2 className="text-2xl font-bold text-loft-50 font-serif capitalize">
-                {editMode ? 'Edit' : 'Add'} Admin
+                {editMode ? 'Edit' : 'Add'} Administrator
               </h2>
               <button
                 type="button"
@@ -210,20 +323,60 @@ const SettingsTab = () => {
                   {editMode ? 'Reset Password (optional)' : 'Password'}
                 </label>
                 <input 
-                  type="password" required={!editMode} className="input-field" 
-                  value={adminForm.password} onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
-                  placeholder={editMode ? 'Leave blank to keep current' : 'Enter temporary password'}
+                  type="password" className="input-field" 
+                  placeholder={editMode ? 'Leave blank to keep current' : 'Enter strong password'}
+                  value={adminForm.password} 
+                  required={!editMode}
+                  onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
                 />
               </div>
-              <div className="flex justify-end gap-3 pt-6 border-t border-loft-800">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 bg-transparent border border-loft-700 hover:bg-loft-800 text-loft-300 rounded-xl text-sm font-semibold transition-all cursor-pointer">
+              <div className="pt-4 flex justify-end gap-3 border-t border-loft-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 border border-loft-700 text-loft-300 hover:bg-loft-800 rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                >
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary py-2.5 px-5 text-sm font-semibold rounded-xl cursor-pointer">
-                  Save Changes
+                  {editMode ? 'Save Changes' : 'Create Admin'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Bulk Delete Admins Confirm */}
+      {bulkDeleteConfirm.isOpen && createPortal(
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+          <div className="bg-loft-900 border border-red-500/40 rounded-2xl max-w-md w-full p-6 relative shadow-2xl text-center my-auto">
+            <div className="w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+              <Trash2 className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-loft-50 mb-2 font-serif">
+              Bulk Delete {selectedIds.size} Administrators
+            </h2>
+            <p className="text-loft-300 text-sm mb-6 leading-relaxed">
+              Are you sure you want to permanently revoke dashboard access and delete <strong className="text-red-400">{selectedIds.size}</strong> selected administrator accounts?
+            </p>
+            <div className="flex justify-center gap-3">
+              <button 
+                onClick={() => setBulkDeleteConfirm({ isOpen: false })}
+                disabled={isBulkDeleting}
+                className="px-5 py-2.5 bg-transparent border border-loft-700 hover:bg-loft-800 text-loft-300 rounded-xl text-sm font-semibold transition-all cursor-pointer flex-1 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={executeBulkDelete}
+                disabled={isBulkDeleting}
+                className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer flex-1 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isBulkDeleting ? 'Deleting...' : `Confirm Delete (${selectedIds.size})`}
+              </button>
+            </div>
           </div>
         </div>,
         document.body

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Phone, User, Eye, EyeOff } from 'lucide-react';
+import { ArrowRight, Phone, User, Eye, EyeOff, Gift } from 'lucide-react';
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../../config/firebase';
 import { useDispatch } from 'react-redux';
@@ -19,7 +19,7 @@ const GoogleIcon = () => (
 );
 
 const Register = () => {
-  const [formData, setFormData] = useState({ name: '', phone: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ name: '', phone: '', email: '', password: '', referralCode: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isTermsOpen, setIsTermsOpen] = useState(false);
@@ -45,6 +45,7 @@ const Register = () => {
         email: formData.email,
         phone: formData.phone,
         password: formData.password,
+        referralCode: formData.referralCode?.trim() || undefined,
         role: activeTab 
       });
       
@@ -223,6 +224,29 @@ const Register = () => {
               >
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label htmlFor="referralCode" className="block text-sm font-medium text-loft-200">
+                Referral Code (Optional)
+              </label>
+              <span className="text-xs text-copper-400 font-medium">Get ₹100 Welcome Bonus</span>
+            </div>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <Gift className="h-5 w-5 text-loft-400" />
+              </div>
+              <input
+                id="referralCode"
+                name="referralCode"
+                type="text"
+                className="input-field pl-12 uppercase tracking-wider font-mono placeholder:normal-case placeholder:font-sans"
+                placeholder="e.g. EMINENCE-AB12CD"
+                value={formData.referralCode}
+                onChange={(e) => setFormData({ ...formData, referralCode: e.target.value.toUpperCase() })}
+              />
             </div>
           </div>
 

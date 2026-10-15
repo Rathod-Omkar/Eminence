@@ -26,6 +26,7 @@ const AuthModal = ({ isOpen, onClose, onSuccess, initialMode = 'login', message 
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('customer');
+  const [referralCode, setReferralCode] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -68,7 +69,7 @@ const AuthModal = ({ isOpen, onClose, onSuccess, initialMode = 'login', message 
     setIsLoading(true);
     setError('');
     try {
-      const res = await api.post('/api/auth/register', { name, email, phone, password, role });
+      const res = await api.post('/api/auth/register', { name, email, phone, password, role, referralCode: referralCode?.trim() || undefined });
       setIsLoading(false);
       if (res.data.success) {
         // Automatically log in after registration
@@ -318,6 +319,20 @@ const AuthModal = ({ isOpen, onClose, onSuccess, initialMode = 'login', message 
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-loft-200">Referral Code (Optional)</label>
+                  <span className="text-[10px] text-copper-400 font-medium">Get ₹100 Welcome Bonus</span>
+                </div>
+                <input
+                  type="text"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. EMINENCE-AB12CD"
+                  className="input-field text-sm py-2.5 uppercase font-mono tracking-wider placeholder:normal-case placeholder:font-sans"
+                />
               </div>
 
               <div className="flex items-center gap-2 pt-1">

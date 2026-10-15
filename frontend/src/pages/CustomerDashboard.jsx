@@ -28,6 +28,8 @@ const CustomerDashboard = () => {
   const [isProcessingTopup, setIsProcessingTopup] = useState(false);
   const [topupError, setTopupError] = useState('');
   const [topupSuccess, setTopupSuccess] = useState('');
+  const [isProcessingPro, setIsProcessingPro] = useState(false);
+  const [proSuccess, setProSuccess] = useState('');
 
   // Live booking state
   const [bookings, setBookingsData] = useState([]);
@@ -448,6 +450,75 @@ const CustomerDashboard = () => {
     }
   };
 
+  const handleBuyPro = async () => {
+    setIsProcessingPro(true);
+    try {
+      const isScriptLoaded = await loadRazorpayScript();
+      if (!isScriptLoaded) {
+        alert('Razorpay payment gateway failed to load. Please check your internet connection.');
+        setIsProcessingPro(false);
+        return;
+      }
+
+      const res = await api.post('/api/customer/pro/create-order');
+      const { order, keyId } = res.data;
+
+      const options = {
+        key: keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        amount: order.amount,
+        currency: order.currency || 'INR',
+        name: 'Eminence Logistics',
+        description: 'Eminence Pro Monthly Subscription (₹499/mo)',
+        order_id: order.id,
+        handler: async function (response) {
+          try {
+            const verifyRes = await api.post('/api/customer/pro/verify', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+
+            if (verifyRes.data.success) {
+              dispatch(updateProfileSuccess({ isPro: true }));
+              setProSuccess('Welcome to Eminence Pro! Your exclusive perks are now active.');
+              setTimeout(() => setProSuccess(''), 8000);
+            }
+          } catch (verifyErr) {
+            console.error('Pro Subscription Verification Error:', verifyErr);
+            alert(verifyErr.response?.data?.message || 'Payment verification failed. If deducted, please contact support.');
+          } finally {
+            setIsProcessingPro(false);
+          }
+        },
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+          contact: user?.phone || '',
+        },
+        theme: {
+          color: '#eab308'
+        },
+        modal: {
+          ondismiss: function () {
+            setIsProcessingPro(false);
+          }
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (failRes) {
+        console.error('Razorpay Pro Payment Failed:', failRes.error);
+        alert(`Payment failed: ${failRes.error?.description || 'Transaction declined'}`);
+        setIsProcessingPro(false);
+      });
+      rzp.open();
+    } catch (err) {
+      console.error('Eminence Pro Order Error:', err);
+      alert(err.response?.data?.message || 'Failed to initiate Pro upgrade. Please try again.');
+      setIsProcessingPro(false);
+    }
+  };
+
   const handleDownloadInvoice = (id) => {
     console.log('Downloading invoice for id:', id);
     setDownloadingInvoice(id);
@@ -569,6 +640,19 @@ const CustomerDashboard = () => {
                 ))}
               </div>
 
+              {/* Eminence Pro Success Banner */}
+              {proSuccess && (
+                <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-yellow-500/20 via-yellow-500/10 to-transparent border border-yellow-500/40 text-yellow-300 flex items-center justify-between animate-fade-in">
+                  <div className="flex items-center gap-3">
+                    <Crown className="w-6 h-6 text-yellow-400 shrink-0" />
+                    <span className="font-medium text-sm">{proSuccess}</span>
+                  </div>
+                  <button onClick={() => setProSuccess('')} className="text-yellow-400 hover:text-white p-1">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Gamification & Retention Section */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {/* Eminence Pro Upsell (Only show if not Pro) */}
@@ -579,8 +663,14 @@ const CustomerDashboard = () => {
                       <h3 className="text-xl font-bold text-yellow-500 mb-2 flex items-center gap-2"><Crown className="w-5 h-5"/> Eminence Pro</h3>
                       <p className="text-loft-300 text-sm mb-4">Upgrade for ₹499/mo to get <strong className="text-yellow-400">Zero Cancellation Fees</strong>, Priority Allocation, and <strong className="text-yellow-400">5% OFF</strong> all bookings.</p>
                     </div>
-                    <button className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-2 px-6 rounded-lg shadow-[0_0_15px_rgba(234,179,8,0.2)] transition-all w-full md:w-auto self-start">
-                      Upgrade Now
+                    <button 
+                      id="upgrade-pro-btn"
+                      type="button"
+                      disabled={isProcessingPro}
+                      onClick={handleBuyPro}
+                      className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-2 px-6 rounded-lg shadow-[0_0_15px_rgba(234,179,8,0.2)] transition-all w-full md:w-auto self-start cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isProcessingPro ? 'Opening Checkout...' : 'Upgrade Now'}
                     </button>
                   </div>
                 ) : (

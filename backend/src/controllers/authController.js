@@ -85,7 +85,7 @@ const googleLogin = async (req, res) => {
     let customer = await Customer.findOne({ where: { email } });
     if (!customer) {
       // Generate referral code
-      const refCode = `EMINENCE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const refCode = `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
       customer = await Customer.create({
         name: name || 'Google User',
         email,
@@ -98,6 +98,9 @@ const googleLogin = async (req, res) => {
       // Create wallet
       const { Wallet } = require('../models');
       await Wallet.create({ customerId: customer.id, balance: 0.0 });
+    } else if (!customer.referralCode) {
+      customer.referralCode = `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      await customer.save();
     }
 
     // Double check if profile is complete
@@ -136,6 +139,9 @@ const googleLogin = async (req, res) => {
         isPhoneVerified: customer.isPhoneVerified,
         isProfileComplete: customer.isProfileComplete,
         googleId: customer.googleId,
+        referralCode: customer.referralCode,
+        referredBy: customer.referredBy,
+        isPro: Boolean(customer.isPro),
         role: 'customer'
       }
     });
@@ -238,6 +244,11 @@ const getProfile = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (userRole !== 'driver' && !user.referralCode) {
+      user.referralCode = `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      await user.save();
     }
 
     const safeUser = user.toJSON ? user.toJSON() : { ...user };
@@ -512,6 +523,9 @@ const phoneVerify = async (req, res) => {
           await Wallet.create({ customerId: customer.id, balance: 0.0 });
         } else {
           customer.isPhoneVerified = true;
+          if (!customer.referralCode) {
+            customer.referralCode = `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+          }
           await customer.save();
         }
         
@@ -614,6 +628,9 @@ const phoneVerify = async (req, res) => {
 
     if (userRole !== 'driver') {
       user.isPhoneVerified = true;
+      if (!user.referralCode) {
+        user.referralCode = `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      }
       if (acceptedTerms) {
         user.termsAccepted = true;
         user.termsAcceptedAt = new Date();
@@ -918,19 +935,61 @@ const register = async (req, res) => {
       const existingCustomer = await Customer.findOne({ where: { email } });
       if (existingCustomer) return res.status(400).json({ success: false, message: 'Email already registered' });
       
-      const refCode = 'EMINENCE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const inputRefCode = (req.body.referralCode || req.body.referredBy || '').trim().toUpperCase();
+      let referrer = null;
+      if (inputRefCode) {
+        referrer = await Customer.findOne({ where: { referralCode: inputRefCode } });
+        if (!referrer) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid referral code entered. Please check and try again.'
+          });
+        }
+      }
+
+      const ownRefCode = 'EMINENCE-' + crypto.randomBytes(3).toString('hex').toUpperCase();
       const customer = await Customer.create({
         name: name || 'New User',
         email,
-        phone,
+        phone: cleanPhone,
         password: hashedPassword,
-        referralCode: refCode,
+        referralCode: ownRefCode,
+        referredBy: referrer ? referrer.referralCode : null,
         isBusiness
       });
-      const { Wallet } = require('../models');
-      await Wallet.create({ customerId: customer.id, balance: 0.0 });
+      const { Wallet, Transaction } = require('../models');
+      const initialBonus = referrer ? 100.00 : 0.00;
+      const customerWallet = await Wallet.create({ customerId: customer.id, balance: initialBonus });
+
+      if (referrer) {
+        await Transaction.create({
+          walletId: customerWallet.id,
+          amount: 100.00,
+          type: 'CREDIT',
+          description: `Welcome bonus for signing up with referral code ${referrer.referralCode}`,
+          referenceId: `REF-${referrer.id}`
+        });
+
+        const referrerWallet = await Wallet.findOne({ where: { customerId: referrer.id } });
+        if (referrerWallet) {
+          referrerWallet.balance = (parseFloat(referrerWallet.balance || 0) + 100.00).toFixed(2);
+          await referrerWallet.save();
+          await Transaction.create({
+            walletId: referrerWallet.id,
+            amount: 100.00,
+            type: 'CREDIT',
+            description: `Referral bonus for inviting ${customer.name || customer.email || 'a friend'}`,
+            referenceId: `REF-${customer.id}`
+          });
+        }
+      }
       
-      return res.status(201).json({ success: true, message: 'Customer registered successfully' });
+      return res.status(201).json({ 
+        success: true, 
+        message: referrer 
+          ? 'Customer registered successfully! ₹100 referral bonus credited to your wallet.' 
+          : 'Customer registered successfully' 
+      });
     }
   } catch (error) {
     console.error('Registration Error:', error);
@@ -987,6 +1046,11 @@ const login = async (req, res) => {
     const isMatch = await bcryptjs.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Incorrect password. Please try again.' });
+    }
+
+    if (role !== 'driver' && !user.referralCode) {
+      user.referralCode = `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      await user.save();
     }
 
     const token = jwt.sign(

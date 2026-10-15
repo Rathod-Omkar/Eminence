@@ -1,6 +1,7 @@
 const { Driver, Customer, Vehicle, Booking, AuditLog, PlatformConfig, B2BContract, PromoCode, Admin, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const cache = require('../services/cacheService');
 const startTime = Date.now();
 
@@ -122,6 +123,25 @@ const deleteDriver = async (req, res) => {
   }
 };
 
+// Bulk delete drivers
+const bulkDeleteDrivers = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Please provide an array of driver IDs to delete' });
+    }
+    const deletedCount = await Driver.destroy({
+      where: {
+        id: { [Op.in]: ids }
+      }
+    });
+    res.status(200).json({ success: true, message: `Successfully deleted ${deletedCount} driver(s)`, count: deletedCount });
+  } catch (error) {
+    console.error('Error bulk deleting drivers:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
 // --- CUSTOMER CRUD ---
 
 // Get all customers with pagination and search
@@ -165,10 +185,11 @@ const getCustomers = async (req, res) => {
 // Create a customer
 const createCustomer = async (req, res) => {
   try {
-    const { name, email, phone, city, state, address, isPhoneVerified, isProfileComplete } = req.body;
+    const { name, email, phone, city, state, address, isPhoneVerified, isProfileComplete, referralCode, referredBy } = req.body;
     if (!phone) {
       return res.status(400).json({ success: false, message: 'Phone number is required' });
     }
+    const refCode = referralCode || `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const customer = await Customer.create({
       name,
       email,
@@ -176,9 +197,13 @@ const createCustomer = async (req, res) => {
       city,
       state,
       address,
-      isPhoneVerified,
-      isProfileComplete
+      isPhoneVerified: !!isPhoneVerified,
+      isProfileComplete: !!isProfileComplete,
+      referralCode: refCode,
+      referredBy: referredBy || null
     });
+    const { Wallet } = require('../models');
+    await Wallet.findOrCreate({ where: { customerId: customer.id }, defaults: { balance: 0.00 } });
     res.status(201).json({ success: true, customer });
   } catch (error) {
     console.error('Error creating customer:', error);
@@ -233,6 +258,37 @@ const deleteCustomer = async (req, res) => {
     res.status(200).json({ success: true, message: 'Customer deleted successfully' });
   } catch (error) {
     console.error('Error deleting customer:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+// Bulk delete customers
+const bulkDeleteCustomers = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Please provide an array of customer IDs to delete' });
+    }
+    const { Address, Wallet, Transaction } = require('../models');
+    if (Wallet) {
+      const wallets = await Wallet.findAll({ where: { customerId: { [Op.in]: ids } } });
+      const walletIds = wallets.map(w => w.id);
+      if (walletIds.length > 0 && Transaction) {
+        await Transaction.destroy({ where: { walletId: { [Op.in]: walletIds } } });
+      }
+      await Wallet.destroy({ where: { customerId: { [Op.in]: ids } } });
+    }
+    if (Address) {
+      await Address.destroy({ where: { customerId: { [Op.in]: ids } } });
+    }
+    const deletedCount = await Customer.destroy({
+      where: {
+        id: { [Op.in]: ids }
+      }
+    });
+    res.status(200).json({ success: true, message: `Successfully deleted ${deletedCount} customer(s)`, count: deletedCount });
+  } catch (error) {
+    console.error('Error bulk deleting customers:', error);
     res.status(500).json({ success: false, message: error.message || 'Server error' });
   }
 };
@@ -914,15 +970,44 @@ const deleteAdmin = async (req, res) => {
   }
 };
 
+// Bulk delete admins
+const bulkDeleteAdmins = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Please provide an array of admin IDs to delete' });
+    }
+    const currentAdminId = req.user?.id;
+    if (currentAdminId && ids.includes(currentAdminId)) {
+      return res.status(400).json({ success: false, message: 'You cannot delete your own active administrator account' });
+    }
+    const totalAdmins = await Admin.count();
+    if (totalAdmins - ids.length < 1) {
+      return res.status(400).json({ success: false, message: 'Operation aborted: at least one administrator must remain active' });
+    }
+    const deletedCount = await Admin.destroy({
+      where: {
+        id: { [Op.in]: ids }
+      }
+    });
+    res.status(200).json({ success: true, message: `Successfully deleted ${deletedCount} admin(s)`, count: deletedCount });
+  } catch (error) {
+    console.error('Error bulk deleting admins:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
 module.exports = {
   getDrivers,
   createDriver,
   updateDriver,
   deleteDriver,
+  bulkDeleteDrivers,
   getCustomers,
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  bulkDeleteCustomers,
   getVehicles,
   createVehicle,
   updateVehicle,
@@ -947,5 +1032,6 @@ module.exports = {
   getAdmins,
   createAdmin,
   updateAdmin,
-  deleteAdmin
+  deleteAdmin,
+  bulkDeleteAdmins
 };

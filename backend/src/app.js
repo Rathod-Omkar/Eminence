@@ -92,7 +92,10 @@ const bookingRoutes = require('./routes/bookingRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const ivrRoutes = require('./routes/ivrRoutes');
 
+const customerRoutes = require('./routes/customerRoutes');
+
 app.use('/api/auth', authRoutes);
+app.use('/api/customer', customerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/drivers', driverRoutes);

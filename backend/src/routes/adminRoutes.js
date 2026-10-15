@@ -21,12 +21,14 @@ router.get('/drivers', adminController.getDrivers);
 router.post('/drivers', validateDriver, adminController.createDriver);
 router.put('/drivers/:id', validateDriver, adminController.updateDriver);
 router.delete('/drivers/:id', adminController.deleteDriver);
+router.post('/drivers/bulk-delete', adminController.bulkDeleteDrivers);
 
 // Customer routes
 router.get('/customers', adminController.getCustomers);
 router.post('/customers', validateCustomer, adminController.createCustomer);
 router.put('/customers/:id', validateCustomer, adminController.updateCustomer);
 router.delete('/customers/:id', adminController.deleteCustomer);
+router.post('/customers/bulk-delete', adminController.bulkDeleteCustomers);
 
 // Vehicle routes
 router.get('/vehicles', adminController.getVehicles);
@@ -54,5 +56,6 @@ router.get('/admins', adminController.getAdmins);
 router.post('/admins', adminController.createAdmin);
 router.put('/admins/:id', adminController.updateAdmin);
 router.delete('/admins/:id', adminController.deleteAdmin);
+router.post('/admins/bulk-delete', adminController.bulkDeleteAdmins);
 
 module.exports = router;

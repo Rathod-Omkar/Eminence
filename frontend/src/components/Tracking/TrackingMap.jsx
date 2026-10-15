@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { io } from 'socket.io-client';
@@ -23,7 +23,16 @@ const truckIcon = new L.Icon({
   className: 'rounded-full border-2 border-copper-500 shadow-lg object-cover'
 });
 
-const TrackingMap = ({ bookingId, initialLat = 18.5204, initialLng = 73.8567, isReconnecting = false, currentPosition = null }) => {
+const TrackingMap = ({ 
+  bookingId, 
+  initialLat = 18.5204, 
+  initialLng = 73.8567, 
+  isReconnecting = false, 
+  currentPosition = null,
+  routeCoordinates = null,
+  pickupPosition = null,
+  dropPosition = null
+}) => {
   const [driverPosition, setDriverPosition] = useState([initialLat, initialLng]);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -98,6 +107,33 @@ const TrackingMap = ({ bookingId, initialLat = 18.5204, initialLng = 73.8567, is
             <div className="text-sm">Updated just now</div>
           </Popup>
         </Marker>
+
+        {pickupPosition && (
+          <Marker position={pickupPosition}>
+            <Popup>
+              <div className="text-xs font-bold text-moss-600">Pickup Location</div>
+            </Popup>
+          </Marker>
+        )}
+
+        {dropPosition && (
+          <Marker position={dropPosition}>
+            <Popup>
+              <div className="text-xs font-bold text-copper-600">Drop Location</div>
+            </Popup>
+          </Marker>
+        )}
+
+        {routeCoordinates && Array.isArray(routeCoordinates) && routeCoordinates.length > 0 && (
+          <Polyline
+            positions={routeCoordinates}
+            pathOptions={{
+              color: '#b87333',
+              weight: 5,
+              opacity: 0.85
+            }}
+          />
+        )}
       </MapContainer>
       
       <style>{`

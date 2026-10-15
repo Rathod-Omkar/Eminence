@@ -1,24 +1,43 @@
 import { createPortal } from 'react-dom';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, CheckSquare, Square } from 'lucide-react';
 import { useAdminUsers } from '../../hooks/useAdminUsers';
 
 const UsersTab = () => {
   const {
     customers, loading, isModalOpen, editMode, deleteConfirm, customerForm,
-    setCustomerForm, setIsModalOpen, setDeleteConfirm,
+    selectedIds, bulkDeleteConfirm, isBulkDeleting,
+    setCustomerForm, setIsModalOpen, setDeleteConfirm, setBulkDeleteConfirm,
+    toggleSelectAll, toggleSelectOne, executeBulkDelete,
     handleOpenCreateModal, handleOpenEditModal, handleDeleteItem, executeDelete, handleSubmitForm
   } = useAdminUsers();
 
+  const isAllSelected = customers.length > 0 && selectedIds.size === customers.length;
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-loft-50 font-serif">Manage Users</h1>
-        <button 
-          onClick={handleOpenCreateModal}
-          className="btn-primary flex items-center gap-2 py-2 px-4 text-sm font-semibold rounded-xl cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Add User
-        </button>
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-loft-50 font-serif">Manage Users</h1>
+          <p className="text-xs text-loft-400 mt-1">View, manage, and batch delete customer accounts</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && (
+            <button
+              id="bulk-delete-users-btn"
+              onClick={() => setBulkDeleteConfirm({ isOpen: true })}
+              className="flex items-center gap-2 py-2 px-4 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 transition-all cursor-pointer shadow-lg animate-fade-in"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Delete Selected ({selectedIds.size})</span>
+            </button>
+          )}
+          <button 
+            onClick={handleOpenCreateModal}
+            className="btn-primary flex items-center gap-2 py-2 px-4 text-sm font-semibold rounded-xl cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Add User
+          </button>
+        </div>
       </div>
 
       <div className="card bg-loft-900 border-loft-800 overflow-hidden">
@@ -31,6 +50,15 @@ const UsersTab = () => {
             <table className="w-full text-left text-sm text-loft-300">
               <thead className="bg-loft-950/50 text-xs uppercase font-medium">
                 <tr>
+                  <th className="px-4 py-4 w-12 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all customers"
+                      checked={isAllSelected}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-loft-700 bg-loft-950 text-copper-500 focus:ring-copper-500 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-6 py-4">Name</th>
                   <th className="px-6 py-4">Phone</th>
                   <th className="px-6 py-4">Email</th>
@@ -39,28 +67,52 @@ const UsersTab = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-loft-800">
-                {customers.map((cust) => (
-                  <tr key={cust.id} className="hover:bg-loft-800/50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-loft-100">{cust.name || 'N/A'}</td>
-                    <td className="px-6 py-4">{cust.phone || 'N/A'}</td>
-                    <td className="px-6 py-4">{cust.email || 'N/A'}</td>
-                    <td className="px-6 py-4">{cust.city || 'N/A'}</td>
-                    <td className="px-6 py-4 text-right flex justify-end gap-2">
-                      <button 
-                        onClick={() => handleOpenEditModal(cust)}
-                        className="p-2 text-loft-400 hover:text-copper-500 rounded-lg hover:bg-loft-800 transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteItem(cust.id)}
-                        className="p-2 text-loft-400 hover:text-red-500 rounded-lg hover:bg-loft-800 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {customers.map((cust) => {
+                  const isSelected = selectedIds.has(cust.id);
+                  return (
+                    <tr 
+                      key={cust.id} 
+                      className={`hover:bg-loft-800/50 transition-colors ${isSelected ? 'bg-copper-500/10' : ''}`}
+                    >
+                      <td className="px-4 py-4 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${cust.name || cust.email}`}
+                          checked={isSelected}
+                          onChange={() => toggleSelectOne(cust.id)}
+                          className="w-4 h-4 rounded border-loft-700 bg-loft-950 text-copper-500 focus:ring-copper-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-6 py-4 font-medium text-loft-100 flex items-center gap-2">
+                        <span>{cust.name || 'N/A'}</span>
+                        {cust.isPro && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-bold border border-yellow-500/30">
+                            PRO
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">{cust.phone || 'N/A'}</td>
+                      <td className="px-6 py-4">{cust.email || 'N/A'}</td>
+                      <td className="px-6 py-4">{cust.city || 'N/A'}</td>
+                      <td className="px-6 py-4 text-right flex justify-end gap-2">
+                        <button 
+                          onClick={() => handleOpenEditModal(cust)}
+                          className="p-2 text-loft-400 hover:text-copper-500 rounded-lg hover:bg-loft-800 transition-colors"
+                          title="Edit User"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteItem(cust.id)}
+                          className="p-2 text-loft-400 hover:text-red-500 rounded-lg hover:bg-loft-800 transition-colors"
+                          title="Delete User"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -129,24 +181,24 @@ const UsersTab = () => {
               <div>
                 <label className="block text-xs font-semibold text-loft-300 uppercase tracking-wider mb-2">Address</label>
                 <textarea 
-                  rows="2" className="input-field py-2" 
+                  className="input-field" rows="3"
                   value={customerForm.address}
                   onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })}
                 />
               </div>
-              <div className="flex justify-end gap-3 pt-6 border-t border-loft-800">
-                <button 
-                  type="button" 
+              <div className="pt-4 flex justify-end gap-3 border-t border-loft-800 shrink-0">
+                <button
+                  type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 bg-transparent border border-loft-700 hover:bg-loft-800 text-loft-300 rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                  className="px-4 py-2 border border-loft-700 text-loft-300 hover:bg-loft-800 rounded-xl text-sm font-semibold transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
-                  className="btn-primary py-2.5 px-5 text-sm font-semibold rounded-xl cursor-pointer"
+                  className="btn-primary py-2 px-6 text-sm font-semibold rounded-xl cursor-pointer"
                 >
-                  Save Changes
+                  {editMode ? 'Save Changes' : 'Create Customer'}
                 </button>
               </div>
             </form>
@@ -155,7 +207,7 @@ const UsersTab = () => {
         document.body
       )}
 
-      {/* Delete Confirm */}
+      {/* Delete Single Customer Confirm */}
       {deleteConfirm.isOpen && createPortal(
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
           <div className="bg-loft-900 border border-loft-800 rounded-2xl max-w-sm w-full p-6 relative shadow-2xl text-center my-auto">
@@ -180,6 +232,40 @@ const UsersTab = () => {
                 className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer flex-1"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Bulk Delete Customers Confirm */}
+      {bulkDeleteConfirm.isOpen && createPortal(
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+          <div className="bg-loft-900 border border-red-500/40 rounded-2xl max-w-md w-full p-6 relative shadow-2xl text-center my-auto">
+            <div className="w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+              <Trash2 className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-loft-50 mb-2 font-serif">
+              Bulk Delete {selectedIds.size} Customers
+            </h2>
+            <p className="text-loft-300 text-sm mb-6 leading-relaxed">
+              Are you sure you want to permanently delete all <strong className="text-red-400">{selectedIds.size}</strong> selected customer accounts? All associated wallets and addresses will also be removed.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button 
+                onClick={() => setBulkDeleteConfirm({ isOpen: false })}
+                disabled={isBulkDeleting}
+                className="px-5 py-2.5 bg-transparent border border-loft-700 hover:bg-loft-800 text-loft-300 rounded-xl text-sm font-semibold transition-all cursor-pointer flex-1 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={executeBulkDelete}
+                disabled={isBulkDeleting}
+                className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer flex-1 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isBulkDeleting ? 'Deleting...' : `Confirm Delete (${selectedIds.size})`}
               </button>
             </div>
           </div>

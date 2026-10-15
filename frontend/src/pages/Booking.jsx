@@ -1,13 +1,14 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, Box, ShieldCheck, Tag, Shield, Crown,
-  Mic, MicOff, Sparkles, X, Leaf
+  Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
+import RouteMapPreview from '../components/Customer/Booking/RouteMapPreview';
 import { bookingLocationsSchema, bookingDetailsSchema } from '../utils/formSchemas';
 import AuthModal from '../components/Auth/AuthModal';
 
@@ -22,11 +23,24 @@ const Booking = () => {
   const [discount, setDiscount] = useState(0);
   const [promoMessage, setPromoMessage] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState([]);
   
+  // Fetch saved addresses for quick selection
+  useEffect(() => {
+    if (user?.id) {
+      api.get('/api/address')
+        .then(res => {
+          if (Array.isArray(res.data)) {
+            setSavedAddresses(res.data);
+          }
+        })
+        .catch(err => console.warn('Could not load saved addresses:', err.message));
+    }
+  }, [user?.id]);
 
   // Gamification States
   const [hasInsurance, setHasInsurance] = useState(false);
-  const [isPro] = useState(user?.isPro || false); // Only actual Pro subscribers get the discount
+  const isPro = Boolean(user?.isPro);
 
   // AI Voice Booking States
   const [showVoiceModal, setShowVoiceModal] = useState(false);
@@ -502,6 +516,28 @@ const Booking = () => {
                     placeholder="Enter pickup location"
                     iconColor="text-moss-500"
                   />
+                  {savedAddresses.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[11px] text-loft-400 font-medium flex items-center gap-1">
+                        <Bookmark className="w-3 h-3 text-copper-400" /> Saved:
+                      </span>
+                      {savedAddresses.map((addr) => {
+                        const full = `${addr.street}, ${addr.city} ${addr.postalCode || ''}`.trim();
+                        return (
+                          <button
+                            key={`pickup-saved-${addr.id}`}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, pickup: full })}
+                            className="text-[11px] px-2.5 py-1 rounded-md bg-loft-900 border border-loft-700 hover:border-moss-500 text-loft-200 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>{addr.label?.toLowerCase() === 'home' ? '🏠' : (addr.label?.toLowerCase() === 'office' ? '🏢' : '📍')}</span>
+                            <span className="font-semibold text-moss-400">{addr.label}:</span>
+                            <span className="truncate max-w-[120px]">{addr.street || addr.city}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 
                 <div>
@@ -529,6 +565,48 @@ const Booking = () => {
                       </div>
                     ))}
                   </div>
+                  {savedAddresses.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[11px] text-loft-400 font-medium flex items-center gap-1">
+                        <Bookmark className="w-3 h-3 text-copper-400" /> Saved:
+                      </span>
+                      {savedAddresses.map((addr) => {
+                        const full = `${addr.street}, ${addr.city} ${addr.postalCode || ''}`.trim();
+                        return (
+                          <button
+                            key={`drop-saved-${addr.id}`}
+                            type="button"
+                            onClick={() => handleDropChange(0, full)}
+                            className="text-[11px] px-2.5 py-1 rounded-md bg-loft-900 border border-loft-700 hover:border-copper-500 text-loft-200 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>{addr.label?.toLowerCase() === 'home' ? '🏠' : (addr.label?.toLowerCase() === 'office' ? '🏢' : '📍')}</span>
+                            <span className="font-semibold text-copper-400">{addr.label}:</span>
+                            <span className="truncate max-w-[120px]">{addr.street || addr.city}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Interactive Map Routing Preview (Point A to Point B) */}
+                <div className="pt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-loft-200 flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-copper-400" /> Interactive Route Navigation
+                    </label>
+                    <span className="text-xs text-loft-400">Live Turn-by-Turn Telematics</span>
+                  </div>
+                  <RouteMapPreview
+                    pickupAddress={formData.pickup}
+                    dropAddresses={formData.drops}
+                    onRouteCalculated={({ distanceKm }) => {
+                      if (distanceKm && distanceKm !== formData.totalDistance) {
+                        setFormData(prev => ({ ...prev, totalDistance: distanceKm }));
+                      }
+                    }}
+                    className="h-[320px]"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
