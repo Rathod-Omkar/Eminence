@@ -218,44 +218,79 @@ const DriverDashboard = () => {
     <div className="w-full pt-12 pb-24 relative min-h-[80vh]">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-[radial-gradient(ellipse_at_center,rgba(85,108,145,0.1),transparent_70%)] pointer-events-none z-0"></div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col md:flex-row gap-8">
         
-        {/* Header */}
-        <div className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
+        {/* Left Sidebar */}
+        <div className="w-full md:w-64 flex-shrink-0">
+          <div className="sticky top-28 bg-loft-900 border border-loft-800 rounded-2xl p-4 flex flex-col gap-5">
+            
+            {/* Header info */}
+            <div className="px-3 py-2 border-b border-loft-800/80">
+              <h2 className="text-xl font-bold text-loft-50 font-serif">Driver Portal</h2>
+              <p className="text-xs text-moss-500 font-bold uppercase tracking-wider mt-0.5">Fleet Partner</p>
+            </div>
+
+            {/* Online / Offline status toggle */}
             <button 
               onClick={toggleAvailability}
               disabled={isLoading || isNavigating}
-              className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-3 font-bold tracking-wide text-xs transition-colors shadow-lg cursor-pointer ${isOnline ? 'border-moss-500/30 bg-moss-500/15 text-moss-400 shadow-moss-500/20 hover:bg-moss-500/25' : 'border-loft-600/30 bg-loft-800/50 text-loft-400 shadow-none hover:bg-loft-700/50'}`}
-            >
-              <span className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-moss-500 animate-pulse' : 'bg-loft-500'}`}></span> 
-              {isOnline ? 'ONLINE - RECEIVING TRIPS' : 'OFFLINE'}
-            </button>
-            <h1 className="text-3xl md:text-4xl font-serif font-bold text-loft-50 mb-2">Driver Portal</h1>
-            <p className="text-loft-300">Welcome, <span className="text-copper-400">{user?.name || 'Driver'}</span></p>
-          </div>
-          <button className="btn-primary py-2.5 px-6 shadow-[0_0_20px_rgba(232,99,49,0.2)] bg-red-600/20 text-red-500 border-red-500/50 hover:bg-red-600/30 hover:border-red-500">
-            <AlertTriangle className="w-5 h-5 mr-2" /> SOS / Emergency
-          </button>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex space-x-2 border-b border-loft-800 mb-8 overflow-x-auto hide-scrollbar">
-          {['today', 'heatmap', 'wms', 'earnings', 'completed'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              disabled={isNavigating && tab !== 'today'}
-              className={`px-6 py-3 font-medium text-sm rounded-t-lg transition-colors whitespace-nowrap capitalize ${
-                activeTab === tab
-                  ? 'bg-copper-500/15 text-copper-300 border-b-2 border-copper-500'
-                  : 'text-loft-400 hover:text-loft-200 hover:bg-loft-900/50 disabled:opacity-50 disabled:cursor-not-allowed'
+              className={`w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border font-bold tracking-wide text-xs transition-all shadow-md cursor-pointer ${
+                isOnline 
+                  ? 'border-moss-500/40 bg-moss-500/15 text-moss-400 shadow-moss-500/10 hover:bg-moss-500/25' 
+                  : 'border-loft-700/50 bg-loft-800/60 text-loft-400 hover:bg-loft-800'
               }`}
             >
-              {tab === 'today' ? "Active Trip" : tab === 'heatmap' ? 'Heatmap' : tab === 'wms' ? 'WMS Scanner' : tab}
+              <span className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-moss-500 animate-pulse' : 'bg-loft-500'}`}></span> 
+              <span>{isOnline ? 'ONLINE - RECEIVING TRIPS' : 'OFFLINE'}</span>
             </button>
-          ))}
+
+            {/* Navigation links */}
+            <nav className="space-y-1">
+              {[
+                { id: 'today', label: 'Active Trip', icon: Truck },
+                { id: 'heatmap', label: 'Demand Heatmap', icon: TrendingUp },
+                { id: 'wms', label: 'WMS Scanner', icon: Package },
+                { id: 'earnings', label: 'Earnings & Wallet', icon: Wallet },
+                { id: 'completed', label: 'Trip History', icon: CheckCircle },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  disabled={isNavigating && item.id !== 'today'}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium cursor-pointer ${
+                    activeTab === item.id 
+                      ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20' 
+                      : 'text-loft-300 hover:text-loft-50 hover:bg-loft-800 disabled:opacity-40 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
+
+            {/* SOS / Emergency in sidebar footer */}
+            <div className="pt-3 border-t border-loft-800/80">
+              <button 
+                onClick={() => alert('Emergency SOS Alert sent to Eminence Fleet Dispatch Support!')}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-red-600/15 text-red-400 border border-red-500/40 hover:bg-red-600/25 hover:border-red-500 text-xs font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)] cursor-pointer"
+              >
+                <AlertTriangle className="w-4 h-4 text-red-400" /> 
+                <span>SOS / Emergency</span>
+              </button>
+            </div>
+          </div>
         </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 min-w-0">
+          {/* Header */}
+          <div className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-serif font-bold text-loft-50 mb-1">Driver Dashboard</h1>
+              <p className="text-loft-300">Welcome back, <span className="text-copper-400 font-medium">{user?.name || 'Driver'}</span></p>
+            </div>
+          </div>
         
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -742,6 +777,7 @@ const DriverDashboard = () => {
         </div>
 
       </div>
+    </div>
 
       {/* PoD Certificate Modal */}
       <AnimatePresence>

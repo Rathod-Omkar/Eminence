@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { 
   Package, CheckCircle, Wallet, MapPin, Plus, Gift, Copy, 
   Crown, Target, Star, Leaf, Truck, Bell, Check, AlertCircle, RefreshCw, Lock, Eye, EyeOff,
-  CreditCard, X, ShieldCheck
+  CreditCard, X, ShieldCheck, FileText, Home, Headphones, User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
@@ -541,78 +541,115 @@ const CustomerDashboard = () => {
     <div className="w-full pt-12 pb-24 relative min-h-[80vh]">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-[radial-gradient(ellipse_at_center,rgba(85,108,145,0.1),transparent_70%)] pointer-events-none z-0"></div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col md:flex-row gap-8">
         
-        {/* Header with prominent Book Tempo and Track Booking focus cards */}
-        <div className="mb-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-serif font-bold text-loft-50 mb-2 flex items-center gap-3">
-              Dashboard
-              {isPro && <span className="bg-gradient-to-r from-yellow-400 to-yellow-600 text-black text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 uppercase tracking-widest"><Crown className="w-3 h-3"/> Pro</span>}
-            </h1>
-            <p className="text-loft-300">Welcome back, <span className="text-copper-400 font-medium">{user?.name || 'User'}</span>!</p>
-          </div>
-
-          {/* Prominent Focal Actions: Book Tempo & Track Booking */}
-          <div className="grid grid-cols-2 gap-4 w-full lg:w-auto">
-            <Link 
-              to="/booking"
-              className="group relative flex items-center justify-between gap-4 px-6 py-4 rounded-2xl bg-gradient-to-br from-copper-500/20 via-loft-900 to-loft-900 border border-copper-500/40 hover:border-copper-500 hover:shadow-lg hover:shadow-copper-500/10 transition-all cursor-pointer"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-xl bg-copper-500/20 border border-copper-500/30 flex items-center justify-center text-copper-400 group-hover:bg-copper-500 group-hover:text-loft-950 transition-all">
-                  <Truck className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-loft-50 group-hover:text-copper-300 transition-colors">Book Tempo</h3>
-                  <p className="text-xs text-loft-400">Instant intracity dispatch</p>
-                </div>
+        {/* Left Sidebar Navigation */}
+        <div className="w-full md:w-64 flex-shrink-0">
+          <div className="sticky top-28 bg-loft-900 border border-loft-800 rounded-2xl p-4">
+            <div className="mb-6 px-4 py-2 border-b border-loft-800/80">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-loft-50 font-serif">Customer Hub</h2>
+                {isPro && (
+                  <span className="bg-gradient-to-r from-yellow-400 to-yellow-600 text-black text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 uppercase tracking-widest">
+                    <Crown className="w-2.5 h-2.5" /> Pro
+                  </span>
+                )}
               </div>
-              <span className="text-copper-400 group-hover:translate-x-1 transition-transform text-lg font-bold">→</span>
-            </Link>
+              <p className="text-xs text-copper-400 font-bold uppercase tracking-wider mt-0.5">
+                {isPro ? 'Pro Member' : 'Standard Account'}
+              </p>
+            </div>
 
-            <Link 
-              to="/tracking"
-              className="group relative flex items-center justify-between gap-4 px-6 py-4 rounded-2xl bg-gradient-to-br from-moss-500/20 via-loft-900 to-loft-900 border border-moss-500/40 hover:border-moss-500 hover:shadow-lg hover:shadow-moss-500/10 transition-all cursor-pointer"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-xl bg-moss-500/20 border border-moss-500/30 flex items-center justify-center text-moss-400 group-hover:bg-moss-500 group-hover:text-loft-950 transition-all">
-                  <MapPin className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-loft-50 group-hover:text-moss-300 transition-colors">Track Booking</h3>
-                  <p className="text-xs text-loft-400">Live GPS telematics</p>
-                </div>
-              </div>
-              <span className="text-moss-400 group-hover:translate-x-1 transition-transform text-lg font-bold">→</span>
-            </Link>
+            <nav className="space-y-1">
+              {[
+                { id: 'history', label: 'Bookings', icon: Package },
+                { id: 'tracking', label: 'Live Tracking', icon: MapPin },
+                { id: 'invoices', label: 'Invoices', icon: FileText },
+                { id: 'addresses', label: 'Addresses', icon: Home },
+                { id: 'payments', label: 'Wallet & Top-up', icon: Wallet },
+                { id: 'rewards', label: 'Rewards & Refer', icon: Gift },
+                { id: 'notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
+                { id: 'support', label: 'Support', icon: Headphones },
+                { id: 'profile', label: 'Profile', icon: User },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all text-sm font-medium cursor-pointer ${
+                    activeTab === item.id
+                      ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20'
+                      : 'text-loft-300 hover:text-loft-50 hover:bg-loft-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge > 0 && (
+                    <span className="flex h-5 min-w-[20px] px-1.5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </nav>
           </div>
         </div>
-        
-        {/* Tab Navigation */}
-        <div className="flex space-x-2 border-b border-loft-800 mb-8 overflow-x-auto hide-scrollbar">
-          {['history', 'tracking', 'invoices', 'addresses', 'payments', 'rewards', 'notifications', 'support', 'profile'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-6 py-3 font-medium text-sm rounded-t-lg transition-colors whitespace-nowrap capitalize ${
-                activeTab === tab
-                  ? 'bg-copper-500/15 text-copper-300 border-b-2 border-copper-500'
-                  : 'text-loft-400 hover:text-loft-200 hover:bg-loft-900/50'
-              }`}
-            >
-              {tab === 'history' ? 'Bookings' : tab}
-              {tab === 'notifications' && unreadCount > 0 && (
-                <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
 
-        {/* Tab Content */}
-        <div className="min-h-[300px]">
+        {/* Main Content Area */}
+        <div className="flex-1 min-w-0">
+          {/* Header with prominent Book Tempo and Track Booking focus cards */}
+          <div className="mb-8 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-serif font-bold text-loft-50 mb-2 flex items-center gap-3">
+                Dashboard
+                {isPro && (
+                  <span className="bg-gradient-to-r from-yellow-400 to-yellow-600 text-black text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 uppercase tracking-widest">
+                    <Crown className="w-3 h-3" /> Pro
+                  </span>
+                )}
+              </h1>
+              <p className="text-loft-300">Welcome back, <span className="text-copper-400 font-medium">{user?.name || 'User'}</span>!</p>
+            </div>
+
+            {/* Prominent Focal Actions: Book Tempo & Track Booking */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full xl:w-auto">
+              <Link 
+                to="/booking"
+                className="group relative flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-gradient-to-br from-copper-500/20 via-loft-900 to-loft-900 border border-copper-500/40 hover:border-copper-500 hover:shadow-lg hover:shadow-copper-500/10 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-copper-500/20 border border-copper-500/30 flex items-center justify-center text-copper-400 group-hover:bg-copper-500 group-hover:text-loft-950 transition-all">
+                    <Truck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-loft-50 group-hover:text-copper-300 transition-colors">Book Tempo</h3>
+                    <p className="text-xs text-loft-400">Instant intracity dispatch</p>
+                  </div>
+                </div>
+                <span className="text-copper-400 group-hover:translate-x-1 transition-transform text-lg font-bold">→</span>
+              </Link>
+
+              <Link 
+                to="/tracking"
+                className="group relative flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-gradient-to-br from-moss-500/20 via-loft-900 to-loft-900 border border-moss-500/40 hover:border-moss-500 hover:shadow-lg hover:shadow-moss-500/10 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-moss-500/20 border border-moss-500/30 flex items-center justify-center text-moss-400 group-hover:bg-moss-500 group-hover:text-loft-950 transition-all">
+                    <MapPin className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-loft-50 group-hover:text-moss-300 transition-colors">Track Booking</h3>
+                    <p className="text-xs text-loft-400">Live GPS telematics</p>
+                  </div>
+                </div>
+                <span className="text-moss-400 group-hover:translate-x-1 transition-transform text-lg font-bold">→</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* Tab Content */}
+          <div className="min-h-[300px]">
           {activeTab === 'history' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               {/* Statistics Cards — Live from API */}
@@ -1345,6 +1382,7 @@ const CustomerDashboard = () => {
           )}
         </div>
       </div>
+    </div>
 
       {/* Add Address Modal (Mock) */}
       <AnimatePresence>

@@ -16,6 +16,7 @@ const mockStore = configureStore({
 
 vi.mock('../services/api', () => ({
   default: {
+    get: vi.fn().mockResolvedValue({ data: [] }),
     post: vi.fn().mockResolvedValue({ data: { booking: { id: 'BKG-123' } } })
   }
 }));
