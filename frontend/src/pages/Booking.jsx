@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, Box, ShieldCheck, Tag, Shield, Crown,
-  Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin
+  Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -26,6 +26,8 @@ const Booking = () => {
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [pickupCoord, setPickupCoord] = useState(null);
   const [dropCoords, setDropCoords] = useState([]);
+  const [walletBalance, setWalletBalance] = useState(null);
+  const [_isLoadingWallet, setIsLoadingWallet] = useState(false);
   
   // Fetch saved addresses for quick selection
   useEffect(() => {
@@ -37,6 +39,23 @@ const Booking = () => {
           }
         })
         .catch(err => console.warn('Could not load saved addresses:', err.message));
+    }
+  }, [user?.id]);
+
+  // Fetch wallet balance for user
+  useEffect(() => {
+    if (user?.id) {
+      setIsLoadingWallet(true);
+      api.get('/api/wallet')
+        .then(res => {
+          const bal = res.data?.wallet?.balance ?? res.data?.balance ?? 0;
+          setWalletBalance(parseFloat(bal) || 0);
+        })
+        .catch(err => {
+          console.warn('Could not load wallet balance:', err.message);
+          setWalletBalance(0);
+        })
+        .finally(() => setIsLoadingWallet(false));
     }
   }, [user?.id]);
 
@@ -359,6 +378,16 @@ const Booking = () => {
       setShowAuthModal(true);
       return;
     }
+
+    const totalFare = calculateFare();
+
+    if (formData.paymentMethod === 'wallet') {
+      if (walletBalance !== null && walletBalance < totalFare) {
+        setError(`Insufficient wallet balance (₹${walletBalance.toFixed(2)}). Total fare is ₹${totalFare}. Please recharge your wallet or choose another payment method.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setError('');
     try {
@@ -375,7 +404,7 @@ const Booking = () => {
           tempoType: formData.tempoType,
           bookingMode: formData.bookingMode,
           isRoundTrip: formData.isRoundTrip,
-          estimatedFare: calculateFare(),
+          estimatedFare: totalFare,
           paymentMethod: formData.paymentMethod,
           phone: formData.phone || user?.phone,
         }
@@ -408,7 +437,7 @@ const Booking = () => {
                 razorpay_signature: response.razorpay_signature
               });
               navigate(`/tracking/${bookingId}`);
-            } catch (verifyErr) {
+            } catch (_verifyErr) {
               setError('Payment verification failed.');
               setIsSubmitting(false);
             }
@@ -969,23 +998,83 @@ const Booking = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-loft-200 mb-3">Payment Method</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <label className={`cursor-pointer border rounded-xl p-4 flex items-center gap-3 transition-all ${formData.paymentMethod === 'online' ? 'border-copper-500 bg-copper-500/10' : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'}`}>
-                      <input type="radio" name="paymentMethod" value="online" checked={formData.paymentMethod === 'online'} onChange={handleChange} className="sr-only" />
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${formData.paymentMethod === 'online' ? 'border-copper-500' : 'border-loft-600'}`}>
-                        {formData.paymentMethod === 'online' && <div className="w-2 h-2 rounded-full bg-copper-500"></div>}
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-loft-200">Payment Method</label>
+                    {user && (
+                      <span className="text-xs text-loft-400">
+                        Wallet Balance: <strong className="text-copper-400">₹{(walletBalance ?? 0).toFixed(2)}</strong>
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Pay Online */}
+                    <label className={`cursor-pointer border rounded-xl p-4 flex flex-col justify-between transition-all ${formData.paymentMethod === 'online' ? 'border-copper-500 bg-copper-500/10 ring-1 ring-copper-500/50' : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2.5">
+                          <input type="radio" name="paymentMethod" value="online" checked={formData.paymentMethod === 'online'} onChange={handleChange} className="sr-only" />
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${formData.paymentMethod === 'online' ? 'border-copper-500' : 'border-loft-600'}`}>
+                            {formData.paymentMethod === 'online' && <div className="w-2 h-2 rounded-full bg-copper-500"></div>}
+                          </div>
+                          <span className="font-bold text-loft-50 text-sm">Pay Online</span>
+                        </div>
                       </div>
-                      <span className="font-bold text-loft-50">Pay Online (UPI/Card)</span>
+                      <p className="text-xs text-loft-400 pl-6.5">UPI, Debit/Credit Card, Net Banking</p>
                     </label>
-                    <label className={`cursor-pointer border rounded-xl p-4 flex items-center gap-3 transition-all ${formData.paymentMethod === 'cash' ? 'border-copper-500 bg-copper-500/10' : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'}`}>
-                      <input type="radio" name="paymentMethod" value="cash" checked={formData.paymentMethod === 'cash'} onChange={handleChange} className="sr-only" />
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${formData.paymentMethod === 'cash' ? 'border-copper-500' : 'border-loft-600'}`}>
-                        {formData.paymentMethod === 'cash' && <div className="w-2 h-2 rounded-full bg-copper-500"></div>}
+
+                    {/* Pay to Driver */}
+                    <label className={`cursor-pointer border rounded-xl p-4 flex flex-col justify-between transition-all ${formData.paymentMethod === 'cash' ? 'border-copper-500 bg-copper-500/10 ring-1 ring-copper-500/50' : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2.5">
+                          <input type="radio" name="paymentMethod" value="cash" checked={formData.paymentMethod === 'cash'} onChange={handleChange} className="sr-only" />
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${formData.paymentMethod === 'cash' ? 'border-copper-500' : 'border-loft-600'}`}>
+                            {formData.paymentMethod === 'cash' && <div className="w-2 h-2 rounded-full bg-copper-500"></div>}
+                          </div>
+                          <span className="font-bold text-loft-50 text-sm">Pay to Driver</span>
+                        </div>
                       </div>
-                      <span className="font-bold text-loft-50">Pay to Driver (Cash)</span>
+                      <p className="text-xs text-loft-400 pl-6.5">Cash on delivery / pay at destination</p>
+                    </label>
+
+                    {/* Eminence Wallet */}
+                    <label className={`cursor-pointer border rounded-xl p-4 flex flex-col justify-between transition-all ${formData.paymentMethod === 'wallet' ? 'border-copper-500 bg-copper-500/10 ring-1 ring-copper-500/50' : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2.5">
+                          <input type="radio" name="paymentMethod" value="wallet" checked={formData.paymentMethod === 'wallet'} onChange={handleChange} className="sr-only" />
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${formData.paymentMethod === 'wallet' ? 'border-copper-500' : 'border-loft-600'}`}>
+                            {formData.paymentMethod === 'wallet' && <div className="w-2 h-2 rounded-full bg-copper-500"></div>}
+                          </div>
+                          <span className="font-bold text-loft-50 text-sm flex items-center gap-1.5">
+                            <Wallet className="w-3.5 h-3.5 text-copper-400" />
+                            Wallet
+                          </span>
+                        </div>
+                        {walletBalance !== null && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${walletBalance >= calculateFare() ? 'bg-moss-500/20 text-moss-400 border border-moss-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                            {walletBalance >= calculateFare() ? 'Instant' : 'Low'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="pl-6.5 flex items-center justify-between">
+                        <span className="text-xs text-loft-400">
+                          Balance: <span className="font-semibold text-loft-200">₹{(walletBalance ?? 0).toFixed(2)}</span>
+                        </span>
+                        {walletBalance !== null && walletBalance < calculateFare() && formData.paymentMethod === 'wallet' && (
+                          <a href="/wallet" target="_blank" rel="noopener noreferrer" className="text-[11px] text-copper-400 hover:underline">
+                            Recharge ↗
+                          </a>
+                        )}
+                      </div>
                     </label>
                   </div>
+
+                  {formData.paymentMethod === 'wallet' && walletBalance !== null && walletBalance < calculateFare() && (
+                    <div className="mt-3 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between text-xs text-amber-300">
+                      <span>⚠️ Your wallet balance (₹{walletBalance.toFixed(2)}) is lower than the fare (₹{calculateFare()}).</span>
+                      <a href="/wallet" target="_blank" rel="noopener noreferrer" className="ml-2 font-bold underline hover:text-amber-200 whitespace-nowrap">
+                        Recharge Wallet
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 {error && (

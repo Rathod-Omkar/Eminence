@@ -131,6 +131,11 @@ const bootstrapDatabase = async () => {
       await sequelize.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS "unique_signup_bonus" ON "Transactions" ("walletId") WHERE description = 'Signup Referral Bonus';
       `);
+
+      // Ensure wallet payment method value exists in PostgreSQL enum
+      await sequelize.query(`
+        ALTER TYPE "enum_Bookings_paymentMethod" ADD VALUE IF NOT EXISTS 'wallet';
+      `).catch(() => {});
     } else if (dialect === 'sqlite') {
       // For SQLite test environment, use a similar partial index
       await sequelize.query(`

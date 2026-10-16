@@ -26,7 +26,8 @@ export default function BookScreen() {
   const [goodsType, setGoodsType] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [time, setTime] = useState('14:00');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online' | 'wallet'>('online');
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [showRazorpay, setShowRazorpay] = useState(false);
   const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
   const [currentOrder, setCurrentOrder] = useState<any>(null);
@@ -48,6 +49,14 @@ export default function BookScreen() {
         setSavedAddresses(res.data);
       }
     }).catch(() => {});
+
+    api.get('/api/wallet').then((res) => {
+      const bal = res.data?.wallet?.balance ?? res.data?.balance ?? 0;
+      setWalletBalance(parseFloat(bal) || 0);
+    }).catch((err) => {
+      console.warn('Could not load wallet balance:', err.message);
+      setWalletBalance(0);
+    });
   }, []);
 
   // Known Pune Localities & Landmarks Mapping (zero-latency, distinct coordinates)
@@ -243,11 +252,19 @@ export default function BookScreen() {
       return;
     }
 
+    const estimatedFare = calculateEstimatedFare();
+
+    if (paymentMethod === 'wallet') {
+      if (walletBalance !== null && walletBalance < estimatedFare) {
+        setErrorMessage(`Insufficient wallet balance (₹${walletBalance.toFixed(2)}). Total fare is ₹${estimatedFare}. Please recharge your wallet or choose another payment method.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setErrorMessage('');
 
     try {
-      const estimatedFare = calculateEstimatedFare();
       const payload = {
         pickupAddress: pickup.trim(),
         dropAddress: drops[0].trim(),
@@ -569,24 +586,52 @@ export default function BookScreen() {
 
         {/* SECTION 4: PAYMENT METHOD */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>💳 Payment Method</Text>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Text style={styles.cardTitle}>💳 Payment Method</Text>
+            {walletBalance !== null && (
+              <Text style={{ fontSize: 12, color: '#f08b65', fontWeight: '600' }}>
+                Wallet: ₹{walletBalance.toFixed(2)}
+              </Text>
+            )}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity
-              style={[styles.tempoOption, paymentMethod === 'online' && styles.tempoOptionActive, { flex: 1 }]}
+              style={[styles.tempoOption, paymentMethod === 'online' && styles.tempoOptionActive, { flex: 1, paddingVertical: 10 }]}
               onPress={() => setPaymentMethod('online')}
             >
-              <Text style={{ fontSize: 24, marginBottom: 4 }}>UPI</Text>
-              <Text style={styles.tempoName}>Pay Online</Text>
+              <Text style={{ fontSize: 20, marginBottom: 2 }}>UPI</Text>
+              <Text style={[styles.tempoName, { fontSize: 13 }]}>Online</Text>
+              <Text style={styles.tempoModel}>Cards/UPI</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.tempoOption, paymentMethod === 'cash' && styles.tempoOptionActive, { flex: 1 }]}
+              style={[styles.tempoOption, paymentMethod === 'cash' && styles.tempoOptionActive, { flex: 1, paddingVertical: 10 }]}
               onPress={() => setPaymentMethod('cash')}
             >
-              <Text style={{ fontSize: 24, marginBottom: 4 }}>💵</Text>
-              <Text style={styles.tempoName}>Cash/PoD</Text>
+              <Text style={{ fontSize: 20, marginBottom: 2 }}>💵</Text>
+              <Text style={[styles.tempoName, { fontSize: 13 }]}>Cash</Text>
+              <Text style={styles.tempoModel}>Pay to Driver</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tempoOption, paymentMethod === 'wallet' && styles.tempoOptionActive, { flex: 1, paddingVertical: 10 }]}
+              onPress={() => setPaymentMethod('wallet')}
+            >
+              <Text style={{ fontSize: 20, marginBottom: 2 }}>👛</Text>
+              <Text style={[styles.tempoName, { fontSize: 13 }]}>Wallet</Text>
+              <Text style={[styles.tempoModel, walletBalance !== null && walletBalance < estimatedFare ? { color: '#ef4444' } : { color: '#4ade80' }]}>
+                {walletBalance !== null ? (walletBalance >= estimatedFare ? '₹' + walletBalance.toFixed(0) : 'Low Bal') : 'Wallet'}
+              </Text>
             </TouchableOpacity>
           </View>
+
+          {paymentMethod === 'wallet' && walletBalance !== null && walletBalance < estimatedFare && (
+            <View style={{ marginTop: 10, padding: 10, backgroundColor: 'rgba(239, 68, 68, 0.15)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+              <Text style={{ color: '#fca5a5', fontSize: 12 }}>
+                ⚠️ Wallet balance (₹{walletBalance.toFixed(2)}) is less than total fare (₹{estimatedFare}). Please choose another method or top up.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* SECTION 5: FARE BREAKDOWN & CONFIRM */}

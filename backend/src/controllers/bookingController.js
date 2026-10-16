@@ -1,4 +1,4 @@
-const { Booking, Customer, Driver, Vehicle, B2BContract } = require('../models');
+const { Booking, Customer, Driver, Vehicle, B2BContract, Wallet, Transaction } = require('../models');
 const { optimizeRoute } = require('../services/routeOptimizer');
 const { geocodeAddress } = require('../services/geocoder');
 const { findPoolMatch } = require('../services/poolingEngine');
@@ -207,6 +207,26 @@ const createBooking = async (req, res) => {
       await customer.save();
     }
 
+    // Wallet Payment Method Handling
+    let deductedWallet = null;
+    if (bookingData.paymentMethod === 'wallet') {
+      const wallet = await Wallet.findOne({ where: { customerId: customer.id } });
+      const fareAmount = parseFloat(bookingData.estimatedFare);
+      const currentBalance = wallet ? parseFloat(wallet.balance) : 0;
+
+      if (!wallet || currentBalance < fareAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient wallet balance (₹${currentBalance.toFixed(2)}). Required fare: ₹${fareAmount.toFixed(2)}. Please recharge your wallet or choose another payment method.`
+        });
+      }
+
+      wallet.balance = parseFloat((currentBalance - fareAmount).toFixed(2));
+      await wallet.save();
+      deductedWallet = wallet;
+      bookingData.paymentStatus = 'completed';
+    }
+
     // Dynamic Load Pooling Logic
     if (bookingData.bookingMode === 'shared') {
       const poolMatchId = await findPoolMatch(bookingData);
@@ -227,6 +247,17 @@ const createBooking = async (req, res) => {
     }
 
     const booking = await Booking.create(bookingData);
+
+    if (deductedWallet) {
+      await Transaction.create({
+        walletId: deductedWallet.id,
+        amount: parseFloat(bookingData.estimatedFare),
+        type: 'DEBIT',
+        description: `Payment for Tempo Booking #${booking.id.slice(0, 8)}`,
+        referenceId: booking.id
+      }).catch(err => console.warn('Wallet debit transaction logging note:', err.message));
+    }
+
     res.status(201).json({ success: true, booking, pooled: !!bookingData.poolMatchId });
   } catch (error) {
     console.error('Error creating booking:', error);

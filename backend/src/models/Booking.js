@@ -86,7 +86,7 @@ const Booking = sequelize.define('Booking', {
     defaultValue: 'pending',
   },
   paymentMethod: {
-    type: DataTypes.ENUM('online', 'cash', 'postpaid'),
+    type: DataTypes.ENUM('online', 'cash', 'postpaid', 'wallet'),
     allowNull: false,
   },
   paymentStatus: {
