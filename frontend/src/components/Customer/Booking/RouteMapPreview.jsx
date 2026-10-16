@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, ZoomControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Navigation, Clock, Zap, Sparkles } from 'lucide-react';
+import { Navigation, Clock, Zap, Sparkles, Play, Pause } from 'lucide-react';
 import { geocodeAddress, fetchOsrmRoute } from '../../../utils/puneGeocoder';
 
 // Custom Pin Icon Generator
@@ -42,6 +42,38 @@ const createPinIcon = (label, color = 'copper') => {
   });
 };
 
+// Mini Tempo Marker for Route Preview Animation
+const createMiniTempoIcon = (bearing = 0) => {
+  return L.divIcon({
+    className: 'custom-mini-tempo-icon',
+    html: `
+      <div style="
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #181c24;
+        border: 2.2px solid #e86331;
+        box-shadow: 0 0 14px rgba(232, 99, 49, 0.8), 0 2px 6px rgba(0,0,0,0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: rotate(${bearing}deg);
+        transition: transform 0.15s linear;
+        overflow: hidden;
+      ">
+        <img 
+          src="/images/map_marker_truck_1787941237726.jpg" 
+          alt="Tempo" 
+          style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;"
+        />
+      </div>
+    `,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    popupAnchor: [0, -18]
+  });
+};
+
 // Component to dynamically fit route bounds
 const FitBounds = ({ positions }) => {
   const map = useMap();
@@ -76,12 +108,41 @@ const RouteMapPreview = ({
   const [routePolyline, setRoutePolyline] = useState([]);
   const [routeStats, setRouteStats] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [isSimulatingTempo, setIsSimulatingTempo] = useState(false);
+  const [tempoPos, setTempoPos] = useState(null);
+  const [tempoBearing, setTempoBearing] = useState(0);
   const lastNotifiedRef = useRef('');
   const onRouteCalculatedRef = useRef(onRouteCalculated);
 
   useEffect(() => {
     onRouteCalculatedRef.current = onRouteCalculated;
   }, [onRouteCalculated]);
+
+  // Animate mini tempo along preview polyline
+  useEffect(() => {
+    if (!isSimulatingTempo || !routePolyline || routePolyline.length < 2) {
+      setTempoPos(null);
+      return;
+    }
+
+    let idx = 0;
+    const interval = setInterval(() => {
+      idx = (idx + 1) % routePolyline.length;
+      const cur = routePolyline[idx];
+      const next = routePolyline[(idx + 1) % routePolyline.length];
+      setTempoPos({ lat: cur[0], lng: cur[1] });
+
+      const toRad = deg => (deg * Math.PI) / 180;
+      const toDeg = rad => (rad * 180) / Math.PI;
+      const dLon = toRad(next[1] - cur[1]);
+      const y = Math.sin(dLon) * Math.cos(toRad(next[0]));
+      const x = Math.cos(toRad(cur[0])) * Math.sin(toRad(next[0])) - Math.sin(toRad(cur[0])) * Math.cos(toRad(next[0])) * Math.cos(dLon);
+      const brng = (toDeg(Math.atan2(y, x)) + 360) % 360;
+      setTempoBearing(brng);
+    }, 120);
+
+    return () => clearInterval(interval);
+  }, [isSimulatingTempo, routePolyline]);
 
   // 1. Resolve coordinates for Pickup and Drops
   useEffect(() => {
@@ -191,21 +252,44 @@ const RouteMapPreview = ({
       {/* Floating Telematics Badge */}
       <div className="absolute top-3 left-3 right-3 z-[1000] flex flex-wrap items-center justify-between gap-2 pointer-events-none">
         {routeStats ? (
-          <div className="bg-loft-900/95 backdrop-blur-md border border-copper-500/40 rounded-xl px-3.5 py-2 shadow-2xl flex items-center gap-3 text-xs pointer-events-auto">
-            <div className="flex items-center gap-1.5 font-bold text-copper-400">
-              <Navigation className="w-3.5 h-3.5 text-copper-400" />
-              <span>{routeStats.distanceKm} km</span>
+          <div className="flex items-center gap-2">
+            <div className="bg-loft-900/95 backdrop-blur-md border border-copper-500/40 rounded-xl px-3.5 py-2 shadow-2xl flex items-center gap-3 text-xs pointer-events-auto">
+              <div className="flex items-center gap-1.5 font-bold text-copper-400">
+                <Navigation className="w-3.5 h-3.5 text-copper-400" />
+                <span>{routeStats.distanceKm} km</span>
+              </div>
+              <span className="text-loft-600">•</span>
+              <div className="flex items-center gap-1.5 text-loft-200">
+                <Clock className="w-3.5 h-3.5 text-loft-400" />
+                <span>~{routeStats.durationMins} mins</span>
+              </div>
+              <span className="text-loft-600">•</span>
+              <div className="flex items-center gap-1 text-[11px] text-moss-400 font-medium">
+                <Zap className="w-3 h-3 text-moss-400" />
+                <span>Live OSRM Route</span>
+              </div>
             </div>
-            <span className="text-loft-600">•</span>
-            <div className="flex items-center gap-1.5 text-loft-200">
-              <Clock className="w-3.5 h-3.5 text-loft-400" />
-              <span>~{routeStats.durationMins} mins</span>
-            </div>
-            <span className="text-loft-600">•</span>
-            <div className="flex items-center gap-1 text-[11px] text-moss-400 font-medium">
-              <Zap className="w-3 h-3 text-moss-400" />
-              <span>Live OSRM Route</span>
-            </div>
+
+            {routePolyline.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setIsSimulatingTempo(prev => !prev)}
+                className="pointer-events-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-copper-500 to-copper-600 hover:from-copper-400 hover:to-copper-500 text-white font-semibold text-xs shadow-lg shadow-copper-500/25 transition-all border border-copper-400/40 cursor-pointer active:scale-95"
+                title="Watch tempo travel this route in real-time"
+              >
+                {isSimulatingTempo ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5" />
+                    <span>Pause Tempo</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Simulate Tempo</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         ) : (
           <div className="bg-loft-900/90 backdrop-blur-md border border-loft-700/60 rounded-xl px-3 py-1.5 shadow-lg flex items-center gap-2 text-xs text-loft-300 pointer-events-auto">
@@ -300,6 +384,21 @@ const RouteMapPreview = ({
                 }}
               />
             </>
+          )}
+
+          {/* Animated Tempo Marker on Simulated Route */}
+          {isSimulatingTempo && tempoPos && (
+            <Marker
+              position={[tempoPos.lat, tempoPos.lng]}
+              icon={createMiniTempoIcon(tempoBearing)}
+              zIndexOffset={1000}
+            >
+              <Popup>
+                <div className="text-xs font-semibold text-gray-800">
+                  🚚 Tempo In Transit (Live Simulation)
+                </div>
+              </Popup>
+            </Marker>
           )}
         </MapContainer>
       </div>

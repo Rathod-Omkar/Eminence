@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Navigation, Wallet, AlertTriangle, CheckCircle, Clock, 
-  MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio 
+  MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio, Play
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useSelector } from 'react-redux';
@@ -198,8 +198,29 @@ const DriverDashboard = () => {
     }
   };
 
+  const startDemoSimulation = () => {
+    setActiveRide({
+      bookingId: 'demo-sim-' + Date.now().toString(36),
+      customerName: 'Tata AutoComp Systems Ltd',
+      customerPhone: '+91 98220 54321',
+      pickup: 'Swargate, Pune',
+      dropoff: 'Viman Nagar, Pune',
+      fare: 850,
+      cargoType: 'Automotive Parts & Assemblies',
+      distance: '14.8 km',
+      duration: '~28 mins',
+      status: 'in_transit'
+    });
+    setIsNavigating(true);
+  };
+
   const handleFinishTrip = async () => {
     if (!activeRide) return;
+    if (activeRide.bookingId?.startsWith('demo-sim-')) {
+      setPodHash('POD-' + Math.random().toString(36).substring(2, 10).toUpperCase());
+      setShowPod(true);
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await api.post(`/api/bookings/${activeRide.bookingId}/complete`);
@@ -461,14 +482,22 @@ const DriverDashboard = () => {
                         Fleet administrators appoint bookings directly to your vehicle based on capacity and scheduled routes. As soon as dispatch assigns a delivery, your work order and live route will appear here.
                       </p>
 
-                      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto mb-10">
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-xl mx-auto mb-10">
                         <button
                           onClick={fetchMetrics}
                           disabled={statsLoading}
-                          className="btn-primary w-full sm:w-auto px-8 py-3.5 text-sm font-bold flex items-center justify-center gap-2.5 shadow-lg"
+                          className="btn-primary w-full sm:w-auto px-7 py-3.5 text-sm font-bold flex items-center justify-center gap-2.5 shadow-lg"
                         >
                           <RefreshCw className={`w-4 h-4 ${statsLoading ? 'animate-spin' : ''}`} />
-                          {statsLoading ? 'Checking Fleet...' : 'Check for Appointed Work'}
+                          {statsLoading ? 'Checking Fleet...' : 'Check Appointed Work'}
+                        </button>
+
+                        <button
+                          onClick={startDemoSimulation}
+                          className="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-copper-500/50 bg-copper-500/10 hover:bg-copper-500/20 text-copper-300 font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-copper-500/10"
+                        >
+                          <Play className="w-4 h-4 text-copper-400 fill-copper-400" />
+                          Launch Tempo Moving Simulation
                         </button>
                       </div>
 
@@ -498,10 +527,21 @@ const DriverDashboard = () => {
                 )
               ) : (
                 <motion.div key="nav" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col md:flex-row gap-6">
-                  {/* Real-time Interactive Driver Navigation Map */}
+                  {/* Real-time Interactive Driver Navigation Map with Moving Tempo Simulation */}
                   <DriverNavigationMap
                     driverPos={driverPos}
                     activeRide={activeRide}
+                    onLocationUpdate={(newPos) => {
+                      setDriverPos(newPos);
+                      if (socketRef.current && activeRide?.bookingId) {
+                        socketRef.current.emit('driver:location_update', {
+                          bookingId: activeRide.bookingId,
+                          lat: newPos.lat,
+                          lng: newPos.lng,
+                        });
+                      }
+                    }}
+                    onFinishTrip={handleFinishTrip}
                   />
                   
                   {/* Trip Controls */}
@@ -528,9 +568,22 @@ const DriverDashboard = () => {
                           <p className="text-loft-400 text-xs">Drop-off Destination</p>
                           <p className="font-semibold text-loft-200 text-xs truncate">{activeRide?.dropoff || '—'}</p>
                         </div>
-                        <div className="pt-4 border-t border-loft-800">
-                          <button onClick={handleFinishTrip} className="w-full bg-moss-500 hover:bg-moss-400 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors cursor-pointer">
+                        <div className="pt-4 border-t border-loft-800 space-y-2">
+                          <button onClick={handleFinishTrip} className="w-full bg-moss-500 hover:bg-moss-400 text-white font-bold py-3.5 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors cursor-pointer text-sm">
                             Complete Trip & Sign PoD
+                          </button>
+
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setIsNavigating(false);
+                              if (activeRide?.bookingId?.startsWith('demo-sim-')) {
+                                setActiveRide(null);
+                              }
+                            }}
+                            className="w-full bg-loft-900 hover:bg-loft-800 text-loft-300 font-semibold py-2.5 rounded-xl border border-loft-800 transition-colors text-xs cursor-pointer"
+                          >
+                            Exit Navigation
                           </button>
                         </div>
                       </div>
