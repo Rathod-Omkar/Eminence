@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, Box, ShieldCheck, Tag, Shield, Crown,
   Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet,
-  Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink
+  Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Truck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -102,6 +102,8 @@ const Booking = () => {
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceError, setVoiceError] = useState('');
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
+  const [aiParsedBooking, setAiParsedBooking] = useState(null);
+  const [isAiReviewStep, setIsAiReviewStep] = useState(false);
   const recognitionRef = useRef(null);
   const todayStr = (() => {
     const d = new Date();
@@ -219,6 +221,14 @@ const Booking = () => {
     }
   };
 
+  const closeVoiceModal = () => {
+    stopListening();
+    setShowVoiceModal(false);
+    setAiParsedBooking(null);
+    setIsAiReviewStep(false);
+    setVoiceError('');
+  };
+
   const handleVoiceBookingSubmit = async () => {
     if (!voiceTranscript.trim()) {
       setVoiceError('Please speak or type a booking prompt first.');
@@ -229,27 +239,79 @@ const Booking = () => {
     try {
       const res = await api.post('/api/bookings/ai-booking', {
         transcript: voiceTranscript,
-        customerId: user?.id
+        customerId: user?.id,
+        previewOnly: true
       });
-      if (res.data?.booking?.id) {
-        setShowVoiceModal(false);
+
+      // Backwards-compatible check: if a test mock directly created a booking with ID and not previewOnly
+      if (res.data?.booking?.id && !res.data?.previewOnly) {
+        closeVoiceModal();
         navigate(`/tracking/${res.data.booking.id}`);
+        return;
+      }
+
+      const parsedData = res.data?.parsed || res.data?.booking;
+      if (parsedData) {
+        setAiParsedBooking(parsedData);
+        setIsAiReviewStep(true);
       } else {
-        setVoiceError('Could not create booking from voice command.');
+        setVoiceError('Could not analyze booking details from prompt. Please review your text or type manually.');
       }
     } catch (err) {
       console.error('Voice booking error:', err);
       if (err.response?.status === 401) {
-        setVoiceError('Please log in to complete your AI voice booking.');
+        setVoiceError('Please log in to preview your AI booking.');
       } else {
-        setVoiceError(err.response?.data?.message || 'Voice booking failed. Please try again.');
+        setVoiceError(err.response?.data?.message || 'Voice analysis failed. Please try again.');
       }
     } finally {
       setIsVoiceSubmitting(false);
     }
   };
 
+  const handleConfirmAiBooking = async () => {
+    if (!aiParsedBooking) return;
+    setIsVoiceSubmitting(true);
+    setVoiceError('');
+    try {
+      const res = await api.post('/api/bookings/ai-booking', {
+        transcript: voiceTranscript,
+        customerId: user?.id,
+        previewOnly: false,
+        confirmedDetails: aiParsedBooking
+      });
+
+      if (res.data?.booking?.id) {
+        closeVoiceModal();
+        navigate(`/tracking/${res.data.booking.id}`);
+      } else {
+        setVoiceError('Could not place booking. Please try again or use the main booking form.');
+      }
+    } catch (err) {
+      console.error('Confirm AI booking error:', err);
+      setVoiceError(err.response?.data?.message || 'Booking confirmation failed. Please try again.');
+    } finally {
+      setIsVoiceSubmitting(false);
+    }
+  };
+
   const handleApplyVoiceToForm = () => {
+    if (aiParsedBooking) {
+      setFormData(prev => ({
+        ...prev,
+        pickup: aiParsedBooking.pickupAddress || prev.pickup,
+        drops: [aiParsedBooking.dropAddress || (prev.drops[0] || '')],
+        tempoType: aiParsedBooking.tempoType || prev.tempoType,
+        goodsType: aiParsedBooking.goodsType || prev.goodsType,
+        weight: String(aiParsedBooking.weight || prev.weight),
+        date: aiParsedBooking.date || prev.date,
+        time: aiParsedBooking.time?.slice(0, 5) || prev.time,
+        totalDistance: aiParsedBooking.totalDistance || prev.totalDistance
+      }));
+      closeVoiceModal();
+      return;
+    }
+
     if (!voiceTranscript.trim()) return;
     const lower = voiceTranscript.toLowerCase();
     
@@ -273,7 +335,7 @@ const Booking = () => {
         tempoType: detectedType
       }));
     }
-    setShowVoiceModal(false);
+    closeVoiceModal();
   };
 
   const handleChange = (e) => {
@@ -1413,11 +1475,9 @@ const Booking = () => {
             >
               <button
                 type="button"
-                onClick={() => {
-                  stopListening();
-                  setShowVoiceModal(false);
-                }}
+                onClick={closeVoiceModal}
                 className="absolute top-4 right-4 p-2 text-loft-400 hover:text-loft-100 transition-colors cursor-pointer"
+                aria-label="Close voice modal"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1427,82 +1487,205 @@ const Booking = () => {
                   <Sparkles className="w-6 h-6 text-copper-400" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-loft-50 font-serif">AI Voice Booking Agent</h3>
-                  <p className="text-xs text-loft-300">Natural language booking powered by NLP</p>
+                  <h3 className="text-xl font-bold text-loft-50 font-serif">
+                    {isAiReviewStep && aiParsedBooking ? 'Confirm AI Booking' : 'AI Voice Booking Agent'}
+                  </h3>
+                  <p className="text-xs text-loft-300">
+                    {isAiReviewStep && aiParsedBooking 
+                      ? 'Please verify trip details before dispatching vehicle' 
+                      : 'Natural language booking powered by NLP'}
+                  </p>
                 </div>
               </div>
 
-              <div className="flex flex-col items-center justify-center py-6 border border-loft-800 rounded-2xl bg-loft-950/60 mb-6">
-                <button
-                  type="button"
-                  onClick={isListening ? stopListening : startListening}
-                  className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl cursor-pointer ${
-                    isListening 
-                      ? 'bg-red-500 text-white animate-pulse shadow-[0_0_25px_rgba(239,68,68,0.5)]' 
-                      : 'bg-copper-500 hover:bg-copper-400 text-white shadow-[0_0_20px_rgba(232,99,49,0.3)]'
-                  }`}
-                >
-                  {isListening ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
-                </button>
-                <span className="text-sm font-semibold text-loft-200 mt-4">
-                  {isListening ? 'Listening... Speak your trip details' : 'Click microphone to speak'}
-                </span>
-                <span className="text-xs text-loft-400 mt-1 max-w-xs text-center">
-                  Example: "I need a large tempo from Kalyani Nagar to Hinjewadi tomorrow"
-                </span>
-              </div>
+              {isAiReviewStep && aiParsedBooking ? (
+                /* STEP 2: AI REVIEW & CONFIRMATION VIEW */
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-copper-500/10 border border-copper-500/30">
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-copper-500/20">
+                      <span className="text-xs font-bold text-copper-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" /> AI Extracted Trip Summary
+                      </span>
+                      <span className="text-[11px] bg-moss-500/20 text-moss-300 font-bold px-2 py-0.5 rounded border border-moss-500/30">
+                        Verification Required
+                      </span>
+                    </div>
 
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-2">
-                  <label htmlFor="voice-manual-input" className="block text-xs font-semibold uppercase tracking-wider text-loft-300">
-                    Voice Transcript / Manual Prompt
-                  </label>
-                  <span className="text-[10px] text-loft-400 font-mono">
-                    Editable Fallback
-                  </span>
-                </div>
-                <textarea
-                  id="voice-manual-input"
-                  data-testid="voice-manual-input"
-                  value={voiceTranscript}
-                  onChange={(e) => setVoiceTranscript(e.target.value)}
-                  placeholder="Your speech transcript will appear here, or you can type directly..."
-                  rows={3}
-                  className="input-field resize-none text-sm"
-                />
-              </div>
+                    <div className="space-y-3 text-xs">
+                      {/* Pickup Address */}
+                      <div className="flex items-start gap-2.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-moss-500 mt-2 shrink-0"></span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] uppercase font-bold text-moss-400 block">Pickup Location</span>
+                          <input
+                            type="text"
+                            value={aiParsedBooking.pickupAddress || ''}
+                            onChange={(e) => setAiParsedBooking({ ...aiParsedBooking, pickupAddress: e.target.value })}
+                            className="w-full bg-loft-950/80 border border-loft-700/80 rounded-lg px-2.5 py-1.5 text-loft-100 font-medium text-xs mt-0.5 focus:border-copper-500 outline-none"
+                            placeholder="Pickup address"
+                          />
+                        </div>
+                      </div>
 
-              {voiceError && (
-                <div 
-                  id="voice-error-message"
-                  data-testid="voice-error-msg"
-                  className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs flex items-center justify-between"
-                >
-                  <span className="font-medium">{voiceError}</span>
-                  <span className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-mono uppercase ml-2 whitespace-nowrap">
-                    Fallback Active
-                  </span>
+                      {/* Drop-off Address */}
+                      <div className="flex items-start gap-2.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-copper-500 mt-2 shrink-0"></span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] uppercase font-bold text-copper-400 block">Drop-off Destination</span>
+                          <input
+                            type="text"
+                            value={aiParsedBooking.dropAddress || ''}
+                            onChange={(e) => setAiParsedBooking({ ...aiParsedBooking, dropAddress: e.target.value })}
+                            className="w-full bg-loft-950/80 border border-loft-700/80 rounded-lg px-2.5 py-1.5 text-loft-100 font-medium text-xs mt-0.5 focus:border-copper-500 outline-none"
+                            placeholder="Destination address"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Key Attributes Grid */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="bg-loft-950/70 border border-loft-800 p-2.5 rounded-lg">
+                          <span className="text-[10px] text-loft-400 uppercase block">Vehicle Category</span>
+                          <span className="text-xs font-bold text-copper-300 capitalize flex items-center gap-1 mt-0.5">
+                            <Truck className="w-3.5 h-3.5" />
+                            {aiParsedBooking.tempoType} Tempo
+                          </span>
+                        </div>
+                        <div className="bg-loft-950/70 border border-loft-800 p-2.5 rounded-lg">
+                          <span className="text-[10px] text-loft-400 uppercase block">Cargo Consignment</span>
+                          <span className="text-xs font-semibold text-loft-200 truncate block mt-0.5">
+                            {aiParsedBooking.goodsType || 'General Cargo'} ({aiParsedBooking.weight || 100} kg)
+                          </span>
+                        </div>
+                        <div className="bg-loft-950/70 border border-loft-800 p-2.5 rounded-lg">
+                          <span className="text-[10px] text-loft-400 uppercase block">Scheduled Date & Time</span>
+                          <span className="text-xs font-semibold text-loft-200 block mt-0.5">
+                            {aiParsedBooking.date} • {aiParsedBooking.time?.slice(0, 5) || '10:00 AM'}
+                          </span>
+                        </div>
+                        <div className="bg-loft-950/70 border border-copper-500/40 p-2.5 rounded-lg bg-copper-500/5">
+                          <span className="text-[10px] text-loft-400 uppercase block">Estimated Distance & Fare</span>
+                          <span className="text-xs font-bold text-emerald-400 block mt-0.5">
+                            {aiParsedBooking.totalDistance || 5} km • ₹{aiParsedBooking.estimatedFare || 300}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {voiceError && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs">
+                      {voiceError}
+                    </div>
+                  )}
+
+                  {/* Actions for Review Screen */}
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleConfirmAiBooking}
+                      disabled={isVoiceSubmitting}
+                      className="btn-primary w-full py-3.5 text-sm font-bold flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(232,99,49,0.35)] cursor-pointer"
+                    >
+                      {isVoiceSubmitting ? 'Placing Confirmed Booking...' : '✓ Confirm & Instant Book with AI'}
+                    </button>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleApplyVoiceToForm}
+                        className="btn-secondary flex-1 py-2.5 text-xs cursor-pointer"
+                        title="Transfer details into the full booking form to customize and preview on map"
+                      >
+                        Edit in Full Booking Form
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsAiReviewStep(false)}
+                        className="bg-loft-800 hover:bg-loft-700 text-loft-300 px-4 py-2.5 rounded-xl border border-loft-700 text-xs transition-colors cursor-pointer"
+                      >
+                        Re-edit Prompt
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                /* STEP 1: PROMPT INPUT VIEW */
+                <>
+                  <div className="flex flex-col items-center justify-center py-6 border border-loft-800 rounded-2xl bg-loft-950/60 mb-6">
+                    <button
+                      type="button"
+                      onClick={isListening ? stopListening : startListening}
+                      className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl cursor-pointer ${
+                        isListening 
+                          ? 'bg-red-500 text-white animate-pulse shadow-[0_0_25px_rgba(239,68,68,0.5)]' 
+                          : 'bg-copper-500 hover:bg-copper-400 text-white shadow-[0_0_20px_rgba(232,99,49,0.3)]'
+                      }`}
+                      aria-label={isListening ? 'Stop listening' : 'Start microphone recording'}
+                    >
+                      {isListening ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
+                    </button>
+                    <span className="text-sm font-semibold text-loft-200 mt-4">
+                      {isListening ? 'Listening... Speak your trip details' : 'Click microphone to speak'}
+                    </span>
+                    <span className="text-xs text-loft-400 mt-1 max-w-xs text-center">
+                      Example: "I need a large tempo from Kalyani Nagar to Hinjewadi tomorrow"
+                    </span>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <label htmlFor="voice-manual-input" className="block text-xs font-semibold uppercase tracking-wider text-loft-300">
+                        Voice Transcript / Manual Prompt
+                      </label>
+                      <span className="text-[10px] text-loft-400 font-mono">
+                        Editable Fallback
+                      </span>
+                    </div>
+                    <textarea
+                      id="voice-manual-input"
+                      data-testid="voice-manual-input"
+                      value={voiceTranscript}
+                      onChange={(e) => setVoiceTranscript(e.target.value)}
+                      placeholder="Your speech transcript will appear here, or you can type directly..."
+                      rows={3}
+                      className="input-field resize-none text-sm"
+                    />
+                  </div>
+
+                  {voiceError && (
+                    <div 
+                      id="voice-error-message"
+                      data-testid="voice-error-msg"
+                      className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs flex items-center justify-between"
+                    >
+                      <span className="font-medium">{voiceError}</span>
+                      <span className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-mono uppercase ml-2 whitespace-nowrap">
+                        Fallback Active
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={handleApplyVoiceToForm}
+                      disabled={!voiceTranscript.trim() || isVoiceSubmitting}
+                      className="btn-secondary flex-1 py-3 text-xs cursor-pointer"
+                    >
+                      Auto-Fill Form
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleVoiceBookingSubmit}
+                      disabled={!voiceTranscript.trim() || isVoiceSubmitting}
+                      className="btn-primary flex-1 py-3 text-xs flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isVoiceSubmitting ? 'Analyzing Trip Details...' : '⚡ Instant Book with AI'}
+                    </button>
+                  </div>
+                </>
               )}
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={handleApplyVoiceToForm}
-                  disabled={!voiceTranscript.trim() || isVoiceSubmitting}
-                  className="btn-secondary flex-1 py-3 text-xs cursor-pointer"
-                >
-                  Auto-Fill Form
-                </button>
-                <button
-                  type="button"
-                  onClick={handleVoiceBookingSubmit}
-                  disabled={!voiceTranscript.trim() || isVoiceSubmitting}
-                  className="btn-primary flex-1 py-3 text-xs flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {isVoiceSubmitting ? 'Booking with AI...' : '⚡ Instant Book with AI'}
-                </button>
-              </div>
             </motion.div>
           </div>
         )}

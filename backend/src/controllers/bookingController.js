@@ -425,7 +425,7 @@ const getBookingById = async (req, res) => {
 // AI Voice Agent Simulation (NLP Endpoint)
 const aiVoiceBooking = async (req, res) => {
   try {
-    const { transcript } = req.body;
+    const { transcript, previewOnly, confirmedDetails } = req.body;
     
     // Guard against empty or missing transcripts (TC-KRI-001)
     if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
@@ -602,6 +602,16 @@ Return exactly a raw JSON object (and nothing else) with these keys:
       extractedData.date = today;
     }
 
+    // Restrict booking date: cannot book past dates and advance booking limited to 1 month only
+    const maxBookingDate = new Date();
+    maxBookingDate.setMonth(maxBookingDate.getMonth() + 1);
+    const maxDateStr = maxBookingDate.toISOString().split('T')[0];
+    if (extractedData.date < today) {
+      extractedData.date = today;
+    } else if (extractedData.date > maxDateStr) {
+      extractedData.date = maxDateStr;
+    }
+
     // Safe normalization of time format without ReDoS regex
     if (typeof extractedData.time === 'string') {
       const parts = extractedData.time.split(':');
@@ -689,7 +699,22 @@ Return exactly a raw JSON object (and nothing else) with these keys:
       status: 'pending'
     };
 
-    const booking = await Booking.create(finalBookingData);
+    if (previewOnly) {
+      return res.status(200).json({ 
+        success: true, 
+        previewOnly: true,
+        message: 'AI successfully analyzed trip details. Please review and confirm before placing the order.',
+        booking: finalBookingData,
+        parsed: finalBookingData
+      });
+    }
+
+    const bookingPayload = {
+      ...finalBookingData,
+      ...(confirmedDetails || {})
+    };
+
+    const booking = await Booking.create(bookingPayload);
     
     res.status(201).json({ 
       success: true, 
