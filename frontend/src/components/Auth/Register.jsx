@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowRight, Phone, User, Eye, EyeOff, Gift } from 'lucide-react';
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../../config/firebase';
@@ -26,6 +26,8 @@ const Register = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab] = useState('customer');
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.state?.from;
 
   const dispatch = useDispatch();
 
@@ -53,7 +55,7 @@ const Register = () => {
       
       if (response.data.success) {
         alert('Registration successful! Please log in.');
-        navigate('/login');
+        navigate('/login', { state: location.state });
       }
     } catch (error) {
       console.error('Registration submit error:', error);
@@ -91,6 +93,8 @@ const Register = () => {
 
         if (!data.user.isProfileComplete) {
           navigate('/complete-profile');
+        } else if (from) {
+          navigate(from, { state: location.state, replace: true });
         } else {
           navigate(`/${data.user.role || activeTab}/dashboard`);
         }

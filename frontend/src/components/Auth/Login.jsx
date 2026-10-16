@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { ArrowRight, Phone, Mail, Lock, ShieldAlert, Eye, EyeOff, KeyRound, CheckCircle, AlertCircle, X } from 'lucide-react';
 import { signInWithPopup } from 'firebase/auth';
@@ -29,6 +29,8 @@ const Login = () => {
   const [fieldErrors, setFieldErrors] = useState({ email: '', password: '' });
   const [activeTab, setActiveTab] = useState('customer'); // 'customer', 'driver', 'admin'
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.state?.from;
   const dispatch = useDispatch();
   const { isAuthenticated, user } = useSelector((state) => state.auth);
 
@@ -111,9 +113,13 @@ const Login = () => {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      navigate(`/${user.role || 'customer'}/dashboard`);
+      if (from) {
+        navigate(from, { state: location.state, replace: true });
+      } else {
+        navigate(`/${user.role || 'customer'}/dashboard`);
+      }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, navigate, from, location.state]);
 
   const isAdmin = activeTab === 'admin';
 
@@ -134,6 +140,8 @@ const Login = () => {
         }));
         if (!data.user.isProfileComplete) {
           navigate('/complete-profile');
+        } else if (from) {
+          navigate(from, { state: location.state, replace: true });
         }
       }
     } catch (err) {
@@ -201,6 +209,8 @@ const Login = () => {
         }));
         if (!data.user.isProfileComplete) {
           navigate('/complete-profile');
+        } else if (from) {
+          navigate(from, { state: location.state, replace: true });
         }
       }
     } catch (err) {

@@ -1,12 +1,23 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import AuthModal from '../components/Auth/AuthModal';
 
 const Pricing = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useSelector((state) => state.auth);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+
   const plans = [
     {
       name: "1 Ton",
       desc: "Small Capacity",
+      tempoType: "small",
       weight: "Up to 1000 kg",
+      numericWeight: "1000",
       price: "₹350",
       perTon: "₹15/ton",
       features: ["Ideal for small moves", "Fast city navigation", "Verified Driver", "Live Tracking"],
@@ -15,7 +26,9 @@ const Pricing = () => {
     {
       name: "2 Ton",
       desc: "Medium Capacity",
+      tempoType: "medium",
       weight: "Up to 2000 kg",
+      numericWeight: "2000",
       price: "₹550",
       perTon: "₹20/ton",
       features: ["Perfect for medium loads", "Commercial goods", "Verified Driver", "Live Tracking"],
@@ -24,7 +37,9 @@ const Pricing = () => {
     {
       name: "3 Ton",
       desc: "Large Capacity",
+      tempoType: "large",
       weight: "Up to 3000 kg",
+      numericWeight: "3000",
       price: "₹850",
       perTon: "₹25/ton",
       features: ["Industrial transport", "Heavy machinery", "Verified Driver", "Live Tracking"],
@@ -33,7 +48,9 @@ const Pricing = () => {
     {
       name: "4 Ton",
       desc: "Extra Large Capacity",
+      tempoType: "large",
       weight: "Up to 4000 kg",
+      numericWeight: "4000",
       price: "₹1200",
       perTon: "₹30/ton",
       features: ["Heavy industrial transport", "Large materials", "Verified Driver", "Live Tracking"],
@@ -41,8 +58,39 @@ const Pricing = () => {
     }
   ];
 
+  const handleBookNow = (plan) => {
+    if (isAuthenticated) {
+      navigate('/booking', {
+        state: {
+          selectedTempo: plan.tempoType,
+          weight: plan.numericWeight,
+          planName: plan.name
+        }
+      });
+    } else {
+      setSelectedPlan(plan);
+      setShowAuthModal(true);
+    }
+  };
+
   return (
     <div className="w-full pt-12 pb-24 relative min-h-screen">
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          setShowAuthModal(false);
+          navigate('/booking', {
+            state: selectedPlan ? {
+              selectedTempo: selectedPlan.tempoType,
+              weight: selectedPlan.numericWeight,
+              planName: selectedPlan.name
+            } : undefined
+          });
+        }}
+        message="Please sign in to your Eminence account first to create and confirm your booking."
+      />
+
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-[radial-gradient(ellipse_at_top,rgba(85,108,145,0.15),transparent_70%)] pointer-events-none z-0"></div>
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -90,7 +138,11 @@ const Pricing = () => {
                 ))}
               </div>
               
-              <button className={`w-full py-3 rounded-xl font-medium transition-colors ${plan.popular ? 'bg-copper-600 hover:bg-copper-500 text-white' : 'bg-loft-800 hover:bg-loft-700 text-loft-50'}`}>
+              <button 
+                type="button"
+                onClick={() => handleBookNow(plan)}
+                className={`w-full py-3 rounded-xl font-medium transition-colors cursor-pointer ${plan.popular ? 'bg-copper-600 hover:bg-copper-500 text-white' : 'bg-loft-800 hover:bg-loft-700 text-loft-50'}`}
+              >
                 Book Now
               </button>
             </motion.div>

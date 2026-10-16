@@ -5,7 +5,7 @@ import {
   Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet,
   Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Truck
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
@@ -16,6 +16,7 @@ import { geocodeAddress, fetchOsrmRoute } from '../utils/puneGeocoder';
 
 const Booking = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useSelector((state) => state.auth);
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -131,14 +132,28 @@ const Booking = () => {
     date: todayStr,
     time: '',
     goodsType: '',
-    weight: '',
-    tempoType: 'small', // small, medium, large
+    weight: location.state?.weight ? String(location.state.weight) : '',
+    tempoType: (location.state?.selectedTempo || location.state?.tempoType) && ['small', 'medium', 'large'].includes(location.state?.selectedTempo || location.state?.tempoType)
+      ? (location.state.selectedTempo || location.state.tempoType)
+      : 'small', // small, medium, large
     bookingMode: 'dedicated', // dedicated, shared
     isRoundTrip: false,
     waitingTimeHours: 1,
     phone: '',
     paymentMethod: 'online'
   });
+
+  useEffect(() => {
+    if (location.state?.selectedTempo || location.state?.tempoType || location.state?.weight) {
+      const tempo = location.state.selectedTempo || location.state.tempoType;
+      const weight = location.state.weight;
+      setFormData(prev => ({
+        ...prev,
+        ...(tempo && ['small', 'medium', 'large'].includes(tempo) ? { tempoType: tempo } : {}),
+        ...(weight ? { weight: String(weight) } : {})
+      }));
+    }
+  }, [location.state]);
 
   // Smart Pricing Engine (Dynamic Surge)
   const calculateSurge = () => {
