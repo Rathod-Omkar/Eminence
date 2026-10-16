@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { useSelector, useDispatch } from 'react-redux';
 import api from '../../services/api';
 import { updateProfileSuccess } from '../../redux/slices/authSlice';
-import { MapPin, Phone, Building2, Map, CheckCircle2, User, Mail, LocateFixed, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
+import { MapPin, Phone, Building2, Map, CheckCircle2, User, Mail, LocateFixed, Loader2, Lock, Eye, EyeOff, Gift } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TermsModal from '../Common/TermsModal';
 
@@ -19,7 +19,8 @@ const CompleteProfileModal = () => {
     password: '',
     address: user?.address || '',
     city: user?.city || '',
-    state: user?.state || ''
+    state: user?.state || '',
+    referralCode: ''
   });
 
   const isEmailLocked = Boolean(user?.googleId || user?.isEmailVerified || (user?.email && user.email.includes('@gmail.com')));
@@ -86,6 +87,10 @@ const CompleteProfileModal = () => {
       setFormData({ ...formData, phone: filtered });
       return;
     }
+    if (name === 'referralCode') {
+      setFormData({ ...formData, referralCode: value.toUpperCase() });
+      return;
+    }
     setFormData({ ...formData, [name]: value });
   };
 
@@ -119,7 +124,11 @@ const CompleteProfileModal = () => {
       }
 
       const cleanPhone = formData.phone ? formData.phone.trim().replace(/^(\+91|91)/, '').replace(/\D/g, '') : formData.phone;
-      const payload = { ...formData, phone: cleanPhone };
+      const payload = { 
+        ...formData, 
+        phone: cleanPhone,
+        referralCode: formData.referralCode?.trim() || undefined
+      };
 
       const res = await api.post('/api/auth/complete-profile', payload);
       
@@ -446,6 +455,38 @@ const CompleteProfileModal = () => {
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-900 bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none resize-none"
                   ></textarea>
                 </div>
+
+                {/* Referral Code (Optional) */}
+                {!user?.referredBy ? (
+                  <div className="space-y-2 p-4 bg-orange-50/50 rounded-xl border border-orange-200">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                        <Gift className="w-4 h-4 text-primary" />
+                        Referral Code (Optional)
+                      </label>
+                      <span className="text-xs font-semibold text-orange-600 bg-orange-100/90 px-2.5 py-0.5 rounded-full border border-orange-200">
+                        🎁 Get ₹100 Welcome Bonus
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      name="referralCode"
+                      value={formData.referralCode}
+                      onChange={handleChange}
+                      placeholder="e.g. EMINENCE-AB12CD"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-900 bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none uppercase font-mono tracking-wider placeholder:normal-case placeholder:font-sans"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Have a friend's referral code? Apply it here to get ₹100 credited directly to your wallet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 px-3.5 py-2.5 rounded-xl border border-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>Referral bonus applied with code: <strong>{user.referredBy}</strong></span>
+                  </div>
+                )}
+
 
                 {/* Terms Acceptance if not already accepted */}
                 {!user?.termsAccepted && (

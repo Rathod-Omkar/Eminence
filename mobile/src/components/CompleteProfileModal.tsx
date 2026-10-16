@@ -16,7 +16,8 @@ export default function CompleteProfileModal() {
     phone: user?.phone || '',
     address: '',
     city: '',
-    state: ''
+    state: '',
+    referralCode: ''
   });
 
   if (!user || user.isProfileComplete || isClosed) return null;
@@ -59,7 +60,11 @@ export default function CompleteProfileModal() {
     }
     setLoading(true);
     try {
-      const res = await api.post('/api/auth/complete-profile', formData);
+      const payload = {
+        ...formData,
+        referralCode: formData.referralCode ? formData.referralCode.trim().toUpperCase() : undefined
+      };
+      const res = await api.post('/api/auth/complete-profile', payload);
       if (res.data?.user) {
         await updateUser(res.data.user);
       }
@@ -167,6 +172,25 @@ export default function CompleteProfileModal() {
               placeholderTextColor="#748bac"
               multiline
             />
+
+            {!user?.referredBy && (
+              <>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Referral Code (Optional)</Text>
+                  <Text style={[styles.lockedBadge, { color: '#e86331', backgroundColor: 'rgba(232, 99, 49, 0.1)', borderColor: 'rgba(232, 99, 49, 0.3)' }]}>
+                    🎁 Get ₹100 Bonus
+                  </Text>
+                </View>
+                <TextInput
+                  style={styles.input}
+                  value={formData.referralCode}
+                  autoCapitalize="characters"
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, referralCode: text.toUpperCase() }))}
+                  placeholder="e.g. EMINENCE-AB12CD"
+                  placeholderTextColor="#748bac"
+                />
+              </>
+            )}
           </ScrollView>
 
           <TouchableOpacity style={styles.saveBtn} onPress={handleSubmit} disabled={loading}>

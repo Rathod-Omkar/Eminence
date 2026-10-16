@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { register, login, getProfile } = require('../../src/controllers/authController');
+const { register, login, getProfile, updateProfile } = require('../../src/controllers/authController');
 const { createProOrder, verifyProSubscription, getProStatus } = require('../../src/controllers/customerController');
 const { bulkDeleteCustomers, bulkDeleteDrivers, bulkDeleteAdmins } = require('../../src/controllers/adminController');
 const { Customer, Driver, Admin, Wallet, Transaction, Address } = require('../../src/models');
@@ -75,7 +75,7 @@ describe('System Features & Enhancements Suite', () => {
       expect(res.data.message).toMatch(/Invalid referral code/i);
     });
 
-    test('should credit ₹100 dual bonus to both referee and referrer upon valid referral registration', async () => {
+    test('should credit ₹100 to referee and ₹50 to referrer upon valid referral registration', async () => {
       const refereeEmail = `referee_${Date.now()}@test.com`;
       const refereePhone = `96${Math.floor(10000000 + Math.random() * 90000000)}`;
 
@@ -97,16 +97,66 @@ describe('System Features & Enhancements Suite', () => {
       expect(res.data.success).toBe(true);
       expect(res.data.message).toMatch(/₹100 referral bonus/i);
 
-      // Verify Referee wallet
+      // Verify Referee wallet gets ₹100
       const refereeCustomer = await Customer.findOne({ where: { email: refereeEmail } });
       expect(refereeCustomer.referredBy).toBe(referrerCustomer.referralCode);
 
       const refereeWallet = await Wallet.findOne({ where: { customerId: refereeCustomer.id } });
       expect(parseFloat(refereeWallet.balance)).toBe(100.00);
 
-      // Verify Referrer wallet
+      // Verify Referrer wallet gets ₹50
       const referrerWallet = await Wallet.findOne({ where: { customerId: referrerCustomer.id } });
-      expect(parseFloat(referrerWallet.balance)).toBe(100.00);
+      expect(parseFloat(referrerWallet.balance)).toBe(50.00);
+    });
+
+    test('should credit ₹100 to new user and ₹50 to referrer when referral code is added during profile completion', async () => {
+      // 1. Create a user without referral code
+      const profileUserEmail = `profileuser_${Date.now()}@test.com`;
+      const profileUserPhone = `94${Math.floor(10000000 + Math.random() * 90000000)}`;
+      const regReq = {
+        body: {
+          name: 'Profile Incomplete User',
+          email: profileUserEmail,
+          phone: profileUserPhone,
+          password: 'Password123!',
+          role: 'customer'
+        }
+      };
+      const regRes = mockResponse();
+      await register(regReq, regRes);
+
+      const profileCustomer = await Customer.findOne({ where: { email: profileUserEmail } });
+      expect(profileCustomer.referredBy).toBeNull();
+
+      // Check referrer balance before update
+      const refWalletBefore = await Wallet.findOne({ where: { customerId: referrerCustomer.id } });
+      const balanceBefore = parseFloat(refWalletBefore?.balance || 0);
+
+      // 2. Complete profile and add referral code
+      const updateReq = {
+        user: { id: profileCustomer.id, role: 'customer' },
+        body: {
+          name: 'Profile Completed User',
+          city: 'Pune',
+          state: 'Maharashtra',
+          address: 'FC Road, Shivaji Nagar, Pune',
+          referralCode: referrerCustomer.referralCode
+        }
+      };
+      const updateRes = mockResponse();
+      await updateProfile(updateReq, updateRes);
+
+      expect(updateRes.statusCode).toBe(200);
+      expect(updateRes.data.success).toBe(true);
+      expect(updateRes.data.user.referredBy).toBe(referrerCustomer.referralCode);
+
+      // 3. Verify new user wallet has ₹100
+      const newCustomerWallet = await Wallet.findOne({ where: { customerId: profileCustomer.id } });
+      expect(parseFloat(newCustomerWallet.balance)).toBe(100.00);
+
+      // 4. Verify referrer wallet received an additional ₹50
+      const refWalletAfter = await Wallet.findOne({ where: { customerId: referrerCustomer.id } });
+      expect(parseFloat(refWalletAfter.balance)).toBe(balanceBefore + 50.00);
     });
 
     test('should auto-generate referral code on login if user lacks one', async () => {

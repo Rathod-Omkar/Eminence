@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { updateProfileSuccess } from '../redux/slices/authSlice';
 import MapPicker from '../components/MapPicker';
-import { Upload, Scan, CheckCircle } from 'lucide-react';
+import { Upload, Scan, CheckCircle, Gift } from 'lucide-react';
 
 
 const CompleteProfile = () => {
@@ -15,6 +15,7 @@ const CompleteProfile = () => {
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [location, setLocation] = useState(user?.location || null);
+  const [referralCode, setReferralCode] = useState('');
   const [otpType, setOtpType] = useState(null); // 'email' or 'phone'
   const [otpCode, setOtpCode] = useState('');
   const [otpCooldown, setOtpCooldown] = useState(0);
@@ -99,7 +100,12 @@ const CompleteProfile = () => {
       }
 
       const cleanPhone = phone ? phone.trim().replace(/^(\+91|91)/, '').replace(/\D/g, '') : phone;
-      const res = await api.post('/api/auth/complete-profile', { name, phone: cleanPhone, location });
+      const res = await api.post('/api/auth/complete-profile', { 
+        name, 
+        phone: cleanPhone, 
+        location,
+        referralCode: referralCode.trim() || undefined 
+      });
       dispatch(updateProfileSuccess(res.data.user));
       setMessage('Profile updated. Please verify email and phone if required.');
       if (res.data.user.isProfileComplete) {
@@ -208,6 +214,33 @@ const CompleteProfile = () => {
               </p>
             )}
           </div>
+
+          {/* Referral Code (Optional) */}
+          {!user?.referredBy ? (
+            <div className="bg-orange-50/60 p-3.5 rounded-lg border border-orange-200">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                  <Gift className="w-4 h-4 text-orange-600" /> Referral Code (Optional)
+                </label>
+                <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                  🎁 Get ₹100 Welcome Bonus
+                </span>
+              </div>
+              <input
+                type="text"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="e.g. EMINENCE-AB12CD"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border uppercase font-mono tracking-wider placeholder:normal-case placeholder:font-sans"
+              />
+              <p className="text-xs text-gray-500 mt-1">Enter a friend's referral code to get ₹100 added directly to your wallet.</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 px-3.5 py-2.5 rounded-lg border border-emerald-200">
+              <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span>Referral bonus applied with code: <strong>{user.referredBy}</strong></span>
+            </div>
+          )}
 
           <button
             type="submit"

@@ -149,19 +149,21 @@ const applyReferralCode = async (req, res) => {
         }
       }
 
-      // Reward amount for peer referral
-      const REWARD_AMOUNT = 100.0;
+      // Reward amounts: ₹100 for new user, ₹50 for referrer
+      const NEW_USER_REWARD = 100.0;
+      const REFERRER_REWARD = 50.0;
+
       // 1. Update current customer wallet
       let currentWallet = await Wallet.findOne({ where: { customerId: currentCustomer.id }, transaction });
       if (!currentWallet) {
         currentWallet = await Wallet.create({ customerId: currentCustomer.id, balance: 0 }, { transaction });
       }
-      currentWallet.balance += REWARD_AMOUNT;
+      currentWallet.balance += NEW_USER_REWARD;
       await currentWallet.save({ transaction });
 
       await Transaction.create({
         walletId: currentWallet.id,
-        amount: REWARD_AMOUNT,
+        amount: NEW_USER_REWARD,
         type: 'CREDIT',
         description: 'Signup Referral Bonus',
         referenceId: referrer ? referrer.id : 'PROMO_CODE'
@@ -173,12 +175,12 @@ const applyReferralCode = async (req, res) => {
         if (!referrerWallet) {
           referrerWallet = await Wallet.create({ customerId: referrer.id, balance: 0 }, { transaction });
         }
-        referrerWallet.balance += REWARD_AMOUNT;
+        referrerWallet.balance += REFERRER_REWARD;
         await referrerWallet.save({ transaction });
 
         await Transaction.create({
           walletId: referrerWallet.id,
-          amount: REWARD_AMOUNT,
+          amount: REFERRER_REWARD,
           type: 'CREDIT',
           description: 'Friend Referral Bonus',
           referenceId: currentCustomer.id
@@ -193,9 +195,9 @@ const applyReferralCode = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-        message: `Referral applied! ₹${REWARD_AMOUNT} added to your wallet.`,
+        message: `Referral applied! ₹${NEW_USER_REWARD} added to your wallet.`,
         newBalance: currentWallet.balance,
-        discount: REWARD_AMOUNT
+        discount: NEW_USER_REWARD
       });
     } catch (error) {
       await transaction.rollback();

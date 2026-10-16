@@ -212,6 +212,81 @@ const updateProfile = async (req, res) => {
       customer.password = await bcryptjs.hash(req.body.password.trim(), salt);
     }
 
+    // Handle Referral Code if provided during profile completion / user details update
+    const rawRefCode = (req.body.referralCode || req.body.referredBy || '').trim().toUpperCase();
+    if (rawRefCode) {
+      if (customer.referredBy) {
+        return res.status(400).json({
+          success: false,
+          message: 'A referral code has already been applied to your account.'
+        });
+      }
+
+      if (customer.referralCode && rawRefCode === customer.referralCode.toUpperCase()) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot use your own referral code.'
+        });
+      }
+
+      const referrer = await Customer.findOne({ where: { referralCode: rawRefCode } });
+      if (!referrer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid referral code entered. Please check and try again.'
+        });
+      }
+
+      if (referrer.id === customer.id) {
+        return res.status(400).json({
+          success: false,
+          message: 'You cannot use your own referral code.'
+        });
+      }
+
+      const { Wallet, Transaction } = require('../models');
+
+      // 1. Credit ₹100 Welcome Bonus to Customer (New User / Referee)
+      let customerWallet = await Wallet.findOne({ where: { customerId: customer.id } });
+      if (!customerWallet) {
+        customerWallet = await Wallet.create({ customerId: customer.id, balance: 100.00 });
+      } else {
+        customerWallet.balance = (parseFloat(customerWallet.balance || 0) + 100.00).toFixed(2);
+        await customerWallet.save();
+      }
+
+      await Transaction.create({
+        walletId: customerWallet.id,
+        amount: 100.00,
+        type: 'CREDIT',
+        description: `Welcome bonus for applying referral code ${referrer.referralCode}`,
+        referenceId: `REF-${referrer.id}`
+      });
+
+      // 2. Credit ₹50 Referral Bonus to Referrer (Old User)
+      let referrerWallet = await Wallet.findOne({ where: { customerId: referrer.id } });
+      if (!referrerWallet) {
+        referrerWallet = await Wallet.create({ customerId: referrer.id, balance: 50.00 });
+      } else {
+        referrerWallet.balance = (parseFloat(referrerWallet.balance || 0) + 50.00).toFixed(2);
+        await referrerWallet.save();
+      }
+
+      await Transaction.create({
+        walletId: referrerWallet.id,
+        amount: 50.00,
+        type: 'CREDIT',
+        description: `Referral bonus for inviting ${customer.name || customer.email || 'a friend'}`,
+        referenceId: `REF-${customer.id}`
+      });
+
+      customer.referredBy = referrer.referralCode;
+    }
+
+    if (!customer.referralCode) {
+      customer.referralCode = 'EMINENCE-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+    }
+
     await customer.save();
     customer = await checkAndSetProfileComplete(customer);
 
@@ -220,7 +295,13 @@ const updateProfile = async (req, res) => {
       safeUser.governmentId = maskGovernmentId(safeUser.governmentId);
     }
 
-    return res.status(200).json({ success: true, user: safeUser });
+    return res.status(200).json({ 
+      success: true, 
+      user: safeUser,
+      message: rawRefCode 
+        ? 'Profile updated successfully! ₹100 welcome referral bonus credited to your wallet.' 
+        : 'Profile updated successfully'
+    });
   } catch (error) {
     console.error('Update Profile Error:', error);
     const message = error.name === 'SequelizeUniqueConstraintError' 
@@ -975,11 +1056,11 @@ const register = async (req, res) => {
 
         const referrerWallet = await Wallet.findOne({ where: { customerId: referrer.id } });
         if (referrerWallet) {
-          referrerWallet.balance = (parseFloat(referrerWallet.balance || 0) + 100.00).toFixed(2);
+          referrerWallet.balance = (parseFloat(referrerWallet.balance || 0) + 50.00).toFixed(2);
           await referrerWallet.save();
           await Transaction.create({
             walletId: referrerWallet.id,
-            amount: 100.00,
+            amount: 50.00,
             type: 'CREDIT',
             description: `Referral bonus for inviting ${customer.name || customer.email || 'a friend'}`,
             referenceId: `REF-${customer.id}`

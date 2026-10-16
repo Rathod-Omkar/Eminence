@@ -17,6 +17,7 @@ export interface User {
   vehicleNo?: string;
   isPro?: boolean;
   referralCode?: string;
+  referredBy?: string;
 }
 
 interface AuthContextType {
