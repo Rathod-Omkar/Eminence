@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { io } = require('socket.io-client');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3100';
 let passCount = 0;
 let failCount = 0;
 
@@ -22,6 +22,8 @@ async function runPhase4Tests() {
   console.log('================================================================\n');
 
   let adminToken = '';
+  let createdDriverId = null;
+  let createdVehicleId = null;
 
   // 0. Setup: Authenticate Admin
   try {
@@ -104,6 +106,9 @@ async function runPhase4Tests() {
     }
 
     const isCreated = res.data?.success === true && !!res.data?.driver?.id;
+    if (isCreated) {
+      createdDriverId = res.data.driver.id;
+    }
     logTest(
       'TC-032',
       'Add New Driver to Dispatch Fleet',
@@ -128,6 +133,9 @@ async function runPhase4Tests() {
 
     const res = await axios.post(`${BASE_URL}/api/admin/vehicles`, vehiclePayload, adminHeaders);
     const isCreated = res.data?.success === true && !!res.data?.vehicle?.id;
+    if (isCreated) {
+      createdVehicleId = res.data.vehicle.id;
+    }
 
     logTest(
       'TC-033',
@@ -320,6 +328,20 @@ async function runPhase4Tests() {
   console.log('\n================================================================');
   console.log(`📊 PHASE 4 TEST RESULTS: ${passCount} PASSED, ${failCount} FAILED`);
   console.log('================================================================\n');
+
+  // Cleanup test driver and vehicle created in TC-032 & TC-033
+  try {
+    if (createdDriverId && adminToken) {
+      await axios.delete(`${BASE_URL}/api/admin/drivers/${createdDriverId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      }).catch(() => {});
+    }
+    if (createdVehicleId && adminToken) {
+      await axios.delete(`${BASE_URL}/api/admin/vehicles/${createdVehicleId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      }).catch(() => {});
+    }
+  } catch (e) {}
 
   if (failCount > 0) {
     process.exit(1);

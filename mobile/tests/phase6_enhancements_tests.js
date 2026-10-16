@@ -1,7 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3100';
 let passCount = 0;
 let failCount = 0;
 
@@ -218,6 +218,7 @@ async function runPhase6Tests() {
 
     const bookingCreated = bookingRes.data?.success === true && !!bookingRes.data?.booking?.id;
     const finalFare = bookingRes.data?.booking?.fare || bookingRes.data?.booking?.estimatedFare;
+    const refereeBookingId = bookingRes.data?.booking?.id;
 
     logTest(
       'TC-064',
@@ -228,6 +229,22 @@ async function runPhase6Tests() {
   } catch (err) {
     logTest('TC-064', 'Mobile Booking with Road Distance Telematics & Pro 5% Discount', false, err.response?.data?.message || err.message);
   }
+
+  // Teardown: Clean up referee user and bookings created in this test suite
+  try {
+    const adminRes = await axios.post(`${BASE_URL}/api/admin/login`, {
+      email: 'admin@eminence.com',
+      password: 'adminpassword123',
+    });
+    const adminToken = adminRes.data?.token;
+    if (adminToken && refereeId) {
+      await axios.post(
+        `${BASE_URL}/api/admin/customers/bulk-delete`,
+        { ids: [refereeId] },
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      ).catch(() => {});
+    }
+  } catch (e) {}
 
   console.log('\n================================================================');
   console.log(`📊 PHASE 6 TEST RESULTS: ${passCount} PASSED, ${failCount} FAILED`);

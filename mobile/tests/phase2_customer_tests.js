@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { io } = require('socket.io-client');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3100';
 let passCount = 0;
 let failCount = 0;
 

@@ -40,7 +40,7 @@ function logHeader(text) {
   console.log(`${colors.cyan}${colors.bold}========================================================================${colors.reset}\n`);
 }
 
-function runStage(title, command, args, cwd) {
+function runStage(title, command, args, cwd, extraEnv = {}) {
   const start = Date.now();
   console.log(`${colors.magenta}[STAGE] ${title}...${colors.reset}`);
   console.log(`${colors.dim}  > cd ${path.relative(ROOT_DIR, cwd) || '.'} && ${command} ${args.join(' ')}${colors.reset}`);
@@ -50,7 +50,7 @@ function runStage(title, command, args, cwd) {
     cwd,
     stdio: 'inherit',
     shell: true,
-    env: { ...process.env, CI: 'true', FORCE_COLOR: '1' }
+    env: { ...process.env, CI: 'true', FORCE_COLOR: '1', ...extraEnv }
   });
 
   const durationSec = ((Date.now() - start) / 1000).toFixed(1);
@@ -170,27 +170,35 @@ async function main() {
     process.exit(1);
   }
 
+  const TEST_PORT = '3100';
+  const TEST_BASE_URL = `http://localhost:${TEST_PORT}`;
   let backendProc = null;
+
   try {
-    try {
-      await waitForServer('http://localhost:3000/api/health', 1000);
-    } catch {
-      console.log(`${colors.cyan}[INFO] Spawning backend instance on port 3000 for Mobile QA tests...${colors.reset}`);
-      backendProc = spawn('node', ['src/server.js'], {
-        cwd: BACKEND_DIR,
-        env: { ...process.env, PORT: '3000', DEMO_SEED: 'true', NODE_ENV: 'development', USE_SQLITE: 'true' },
-        stdio: 'inherit'
-      });
-      await waitForServer('http://localhost:3000/api/health', 90000);
-      console.log(`${colors.green}[INFO] Backend instance ready on port 3000.${colors.reset}\n`);
-    }
+    console.log(`${colors.cyan}[INFO] Spawning isolated test backend instance on port ${TEST_PORT} (zero live DB pollution)...${colors.reset}`);
+    backendProc = spawn('node', ['src/server.js'], {
+      cwd: BACKEND_DIR,
+      env: {
+        ...process.env,
+        PORT: TEST_PORT,
+        NODE_ENV: 'test',
+        USE_SQLITE: 'true',
+        DATABASE_URL: '', // Strictly enforce sqlite, never connect to PostgreSQL
+        DEMO_SEED: 'false'
+      },
+      stdio: 'inherit'
+    });
+
+    await waitForServer(`${TEST_BASE_URL}/api/health`, 90000);
+    console.log(`${colors.green}[INFO] Isolated test backend ready on port ${TEST_PORT}.${colors.reset}\n`);
 
     results.push(
       runStage(
         'Mobile: Full QA Integration Test Suite (31 Test Cases)',
         'npm',
         ['test'],
-        MOBILE_DIR
+        MOBILE_DIR,
+        { BASE_URL: TEST_BASE_URL }
       )
     );
   } finally {

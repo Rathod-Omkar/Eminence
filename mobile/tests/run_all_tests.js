@@ -1,8 +1,10 @@
 const { execSync } = require('child_process');
 
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3100';
+
 console.log('================================================================');
 console.log('🚀 EXPO MOBILE APP: RUNNING COMPLETE MONOREPO TEST SUITE (31 TESTS)');
-console.log('Target Backend: http://localhost:3000');
+console.log(`Target Backend: ${BASE_URL}`);
 console.log('================================================================\n');
 
 const suites = [
@@ -20,7 +22,7 @@ let failed = false;
 for (const suite of suites) {
   try {
     console.log(`▶ Executing ${suite.name} (${suite.path})...`);
-    execSync(`node ${suite.path}`, { stdio: 'inherit' });
+    execSync(`node ${suite.path}`, { stdio: 'inherit', env: { ...process.env, BASE_URL } });
     console.log(`✔ Completed ${suite.name}\n`);
   } catch (err) {
     console.error(`✖ Failed in ${suite.name}`);

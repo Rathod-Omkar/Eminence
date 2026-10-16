@@ -7,6 +7,7 @@
     "test": "jest --detectOpenHandles",
     "test:unit": "jest tests/unit/",
     "test:google-auth": "node tests/test_google_auth_automation.js",
+    "db:clean-test-data": "node src/scripts/cleanTestData.js",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js"
   },

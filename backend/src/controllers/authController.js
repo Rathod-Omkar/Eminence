@@ -388,7 +388,7 @@ const phoneLogin = async (req, res) => {
 
     // Check dev demo phone number first (such as default demo seed 1234567890)
     const cleanPhone = String(phone).trim().replace(/^(\+91|91)/, '').replace(/\D/g, '');
-    const isDevDemo = process.env.NODE_ENV === 'development' && (cleanPhone === (process.env.SEED_PHONE || '1234567890') || cleanPhone === '9999999999');
+    const isDevDemo = ['development', 'test'].includes(process.env.NODE_ENV) && (cleanPhone === (process.env.SEED_PHONE || '1234567890') || cleanPhone === '9999999999');
     if (isDevDemo) {
       return res.status(200).json({ success: true, message: 'Demo OTP sent successfully' });
     }
@@ -474,8 +474,8 @@ const phoneVerify = async (req, res) => {
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || 'Unknown Client';
     
-    // For local development only, allow bypass for the designated seed phone number
-    const isDevDemo = process.env.NODE_ENV === 'development' && code === '123456' && (phone === (process.env.SEED_PHONE || '1234567890') || phone === '9999999999');
+    // For local development and isolated testing only, allow bypass for the designated seed phone number
+    const isDevDemo = ['development', 'test'].includes(process.env.NODE_ENV) && code === '123456' && (phone === (process.env.SEED_PHONE || '1234567890') || phone === '9999999999');
     
     if (isDevDemo) {
       let userObj;
@@ -515,10 +515,13 @@ const phoneVerify = async (req, res) => {
       } else {
         const isBusiness = userRole === 'business';
         const { Customer } = require('../models');
-        let customer = await Customer.findOne({ where: { phone, isBusiness } });
+        let customer = await Customer.findOne({ where: { phone, isBusiness: isBusiness ? true : false } });
+        if (!customer) {
+          customer = await Customer.findOne({ where: { phone } });
+        }
         if (!customer) {
           const refCode = 'EMINENCE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-          customer = await Customer.create({ phone, isPhoneVerified: true, referralCode: refCode, isBusiness, name: isBusiness ? 'Business' : 'User' });
+          customer = await Customer.create({ phone, isPhoneVerified: true, referralCode: refCode, isBusiness: isBusiness ? true : false, name: isBusiness ? 'Business' : 'User' });
           const { Wallet } = require('../models');
           await Wallet.create({ customerId: customer.id, balance: 0.0 });
         } else {
