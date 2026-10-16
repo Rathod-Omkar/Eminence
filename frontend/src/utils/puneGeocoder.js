@@ -102,7 +102,32 @@ export const KNOWN_PUNE_LOCATIONS = {
   'ambegaon': { lat: 18.4480, lng: 73.8400, name: 'Ambegaon' },
   'vadgaon sheri': { lat: 18.5500, lng: 73.9200, name: 'Vadgaon Sheri' },
   'keshav nagar': { lat: 18.5280, lng: 73.9350, name: 'Keshav Nagar' },
-  'mundhwa': { lat: 18.5300, lng: 73.9250, name: 'Mundhwa' }
+  'mundhwa': { lat: 18.5300, lng: 73.9250, name: 'Mundhwa' },
+
+  // Key Regional & Intercity Freight Hubs
+  'pune': { lat: 18.5204, lng: 73.8567, name: 'Pune, Maharashtra' },
+  'hyderabad': { lat: 17.3850, lng: 78.4867, name: 'Hyderabad, Telangana' },
+  'secunderabad': { lat: 17.4399, lng: 78.4983, name: 'Secunderabad, Telangana' },
+  'mumbai': { lat: 19.0760, lng: 72.8777, name: 'Mumbai, Maharashtra' },
+  'navi mumbai': { lat: 19.0330, lng: 73.0297, name: 'Navi Mumbai, Maharashtra' },
+  'thane': { lat: 19.2183, lng: 72.9781, name: 'Thane, Maharashtra' },
+  'bengaluru': { lat: 12.9716, lng: 77.5946, name: 'Bengaluru, Karnataka' },
+  'bangalore': { lat: 12.9716, lng: 77.5946, name: 'Bangalore, Karnataka' },
+  'nashik': { lat: 19.9975, lng: 73.7898, name: 'Nashik, Maharashtra' },
+  'solapur': { lat: 17.6599, lng: 75.9064, name: 'Solapur, Maharashtra' },
+  'kolhapur': { lat: 16.7050, lng: 74.2433, name: 'Kolhapur, Maharashtra' },
+  'satara': { lat: 17.6805, lng: 73.9997, name: 'Satara, Maharashtra' },
+  'sangli': { lat: 16.8524, lng: 74.5815, name: 'Sangli, Maharashtra' },
+  'ahmednagar': { lat: 19.0952, lng: 74.7480, name: 'Ahmednagar, Maharashtra' },
+  'aurangabad': { lat: 19.8762, lng: 75.3433, name: 'Chhatrapati Sambhajinagar' },
+  'sambhajinagar': { lat: 19.8762, lng: 75.3433, name: 'Chhatrapati Sambhajinagar' },
+  'nagpur': { lat: 21.1458, lng: 79.0882, name: 'Nagpur, Maharashtra' },
+  'goa': { lat: 15.2993, lng: 74.1240, name: 'Goa' },
+  'delhi': { lat: 28.6139, lng: 77.2090, name: 'Delhi NCR' },
+  'chennai': { lat: 13.0827, lng: 80.2707, name: 'Chennai, Tamil Nadu' },
+  'surat': { lat: 21.1702, lng: 72.8311, name: 'Surat, Gujarat' },
+  'ahmedabad': { lat: 23.0225, lng: 72.5714, name: 'Ahmedabad, Gujarat' },
+  'indore': { lat: 22.7196, lng: 75.8577, name: 'Indore, Madhya Pradesh' }
 };
 
 /**
@@ -213,7 +238,7 @@ export const geocodeAddress = async (query) => {
       if (Array.isArray(data) && data.length > 0) {
         const lat = parseFloat(data[0].lat);
         const lng = parseFloat(data[0].lon);
-        if (lat >= 18.25 && lat <= 18.90 && lng >= 73.55 && lng <= 74.25) {
+        if (lat >= 8.0 && lat <= 36.5 && lng >= 68.0 && lng <= 97.5) {
           const coords = { lat, lng };
           geocodeCache.set(clean, coords);
           return coords;
