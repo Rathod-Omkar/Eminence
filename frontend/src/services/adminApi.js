@@ -32,7 +32,8 @@ export const adminApi = {
   deleteAdmin: (id) => api.delete(`/api/admin/admins/${id}`),
   bulkDeleteAdmins: (ids) => api.post('/api/admin/admins/bulk-delete', { ids }),
 
-  // Booking assignment by Admin
+  // Booking assignment & fleet dispatch by Admin
   getBookings: () => api.get('/api/bookings'),
-  assignDriverToBooking: (bookingId, driverId) => api.put(`/api/bookings/${bookingId}/status`, { status: 'driver_assigned', driverId })
+  assignDriverToBooking: (bookingId, driverId, vehicleId) => api.put(`/api/bookings/${bookingId}/status`, { status: 'driver_assigned', driverId, ...(vehicleId ? { vehicleId } : {}) }),
+  getDriverQueue: (driverId) => api.get(`/api/drivers/${driverId}/queue`)
 };

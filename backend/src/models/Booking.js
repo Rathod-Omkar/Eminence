@@ -97,6 +97,14 @@ const Booking = sequelize.define('Booking', {
     type: DataTypes.STRING(4),
     allowNull: true,
   },
+  queuePosition: {
+    type: DataTypes.INTEGER,
+    defaultValue: 1,
+  },
+  vehicleId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
   // B2B Fields
   isB2B: {
     type: DataTypes.BOOLEAN,

@@ -87,7 +87,7 @@ const getDriverMetrics = async (req, res) => {
         { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'] },
         { model: Vehicle, as: 'vehicle', attributes: ['id', 'registrationNumber', 'type'] }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
     });
 
     res.status(200).json({
@@ -96,6 +96,8 @@ const getDriverMetrics = async (req, res) => {
         completedOrders: totalOrdersCompleted,
         totalEarnings: Math.round(totalEarnings * 100) / 100,
         activeOrdersCount: assignedBookings.length,
+        activeTrip: assignedBookings.length > 0 ? assignedBookings[0] : null,
+        queuedTrips: assignedBookings.length > 1 ? assignedBookings.slice(1) : [],
         assignedBookings,
         completedBookings
       }
@@ -207,7 +209,89 @@ const updateLocation = async (req, res) => {
   }
 };
 
+const getDriverQueue = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user.role !== 'admin' && String(req.user.id) !== String(id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to driver queue' });
+    }
+
+    const { Booking, Customer, Vehicle } = require('../models');
+
+    const activeTrips = await Booking.findAll({
+      where: {
+        driverId: id,
+        status: ['driver_assigned', 'arrived', 'in_transit']
+      },
+      include: [
+        { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'] },
+        { model: Vehicle, as: 'vehicle', attributes: ['id', 'registrationNumber', 'type', 'model', 'fuelType'] }
+      ],
+      order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+    });
+
+    const activeTrip = activeTrips.length > 0 ? activeTrips[0] : null;
+    const queuedTrips = activeTrips.length > 1 ? activeTrips.slice(1) : [];
+
+    res.status(200).json({
+      success: true,
+      queue: {
+        totalInQueue: activeTrips.length,
+        activeTrip,
+        queuedTrips,
+        allTrips: activeTrips
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching driver queue:', error);
+    res.status(500).json({ success: false, message: 'Server error fetching driver queue' });
+  }
+};
+
+const activateQueuedTrip = async (req, res) => {
+  try {
+    const { id, bookingId } = req.params;
+    if (req.user.role !== 'admin' && String(req.user.id) !== String(id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { Booking } = require('../models');
+
+    const targetBooking = await Booking.findOne({
+      where: { id: bookingId, driverId: id, status: ['driver_assigned', 'arrived', 'in_transit'] }
+    });
+
+    if (!targetBooking) {
+      return res.status(404).json({ success: false, message: 'Trip not found in driver queue' });
+    }
+
+    // Reorder queue: place targetBooking at position 1 and increment the rest
+    const allQueue = await Booking.findAll({
+      where: { driverId: id, status: ['driver_assigned', 'arrived', 'in_transit'] },
+      order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+    });
+
+    targetBooking.queuePosition = 1;
+    await targetBooking.save();
+
+    let curPos = 2;
+    for (const b of allQueue) {
+      if (b.id !== bookingId) {
+        b.queuePosition = curPos++;
+        await b.save();
+      }
+    }
+
+    res.status(200).json({ success: true, message: 'Trip activated to front of delivery queue' });
+  } catch (error) {
+    console.error('Error activating queued trip:', error);
+    res.status(500).json({ success: false, message: 'Server error activating queued trip' });
+  }
+};
+
 module.exports = {
+  getDriverQueue,
+  activateQueuedTrip,
   getAllDrivers,
   createDriver,
   toggleAvailability,

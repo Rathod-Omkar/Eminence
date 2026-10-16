@@ -8,6 +8,7 @@ import { adminApi } from '../../services/adminApi';
 const AppointWorkTab = () => {
   const [bookings, setBookings] = useState([]);
   const [drivers, setDrivers] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [assigningId, setAssigningId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -17,9 +18,10 @@ const AppointWorkTab = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [driversRes, bookingsRes] = await Promise.all([
+      const [driversRes, bookingsRes, vehiclesRes] = await Promise.all([
         adminApi.getDrivers(),
-        adminApi.getBookings()
+        adminApi.getBookings(),
+        adminApi.getVehicles()
       ]);
 
       if (driversRes.data?.success) {
@@ -27,6 +29,9 @@ const AppointWorkTab = () => {
       }
       if (bookingsRes.data?.success) {
         setBookings(bookingsRes.data.bookings || []);
+      }
+      if (vehiclesRes.data?.success) {
+        setVehicles(vehiclesRes.data.vehicles || []);
       }
     } catch (err) {
       console.error('Error fetching dispatch data:', err);
@@ -43,19 +48,22 @@ const AppointWorkTab = () => {
     fetchData();
   }, []);
 
-  const handleAppointBooking = async (bookingId, driverId) => {
+  const handleAppointBooking = async (bookingId, driverId, vehicleId) => {
     if (!driverId) return;
     setAssigningId(bookingId);
     setFeedback(null);
 
     const selectedDriver = drivers.find(d => String(d.id) === String(driverId));
     const driverName = selectedDriver ? selectedDriver.name : 'Driver';
+    const currentQueue = driverQueueMap[driverId] || [];
+    const isNewQueue = !currentQueue.some(b => b.id === bookingId);
+    const queuePos = isNewQueue ? currentQueue.length + 1 : 1;
 
     try {
-      await adminApi.assignDriverToBooking(bookingId, driverId);
+      await adminApi.assignDriverToBooking(bookingId, driverId, vehicleId);
       setFeedback({
         type: 'success',
-        message: `Booking #${bookingId.slice(0, 8)} successfully appointed to ${driverName}!`
+        message: `Booking #${bookingId.slice(0, 8)} successfully appointed to ${driverName} (Delivery #${queuePos} in Queue)!`
       });
       await fetchData();
     } catch (err) {
@@ -69,9 +77,25 @@ const AppointWorkTab = () => {
     }
   };
 
-  // Active drivers available for work
-  const activeDrivers = useMemo(() => {
-    return drivers.filter(d => d.status === 'active');
+  // Map each driver to their active/queued bookings
+  const driverQueueMap = useMemo(() => {
+    const map = {};
+    drivers.forEach(d => { map[d.id] = []; });
+    bookings.forEach(b => {
+      if (b.driverId && ['driver_assigned', 'arrived', 'in_transit'].includes(b.status)) {
+        if (!map[b.driverId]) map[b.driverId] = [];
+        map[b.driverId].push(b);
+      }
+    });
+    Object.keys(map).forEach(dId => {
+      map[dId].sort((a, b) => (a.queuePosition || 1) - (b.queuePosition || 1));
+    });
+    return map;
+  }, [drivers, bookings]);
+
+  // Drivers available for work or taking additional queue deliveries
+  const assignableDrivers = useMemo(() => {
+    return drivers.filter(d => d.status !== 'inactive');
   }, [drivers]);
 
   // Statistics calculation
@@ -208,6 +232,80 @@ const AppointWorkTab = () => {
             <p className="text-xs text-loft-400 uppercase tracking-wider font-semibold">Completed Trips</p>
             <p className="text-2xl font-bold text-loft-50">{stats.completed}</p>
           </div>
+        </div>
+      </div>
+
+      {/* Dedicated Company Fleet & Multi-Delivery Queue Overview */}
+      <div className="card bg-loft-900 border-loft-800 p-5 rounded-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-loft-800">
+          <div>
+            <h3 className="text-base font-bold text-loft-50 flex items-center gap-2">
+              <Truck className="w-5 h-5 text-copper-500" />
+              Limited Company Fleet (8 Tempos) & Driver Queues
+            </h3>
+            <p className="text-xs text-loft-400 mt-0.5">
+              Optimized fleet allocation for multi-delivery assignment. Appointing multiple jobs adds them sequentially to the driver's delivery queue.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-loft-950 border border-loft-800 text-copper-400">
+              Active Fleet: 8 Tempos
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            {
+              title: "1x Mahindra Bolero Pickup",
+              sub: "Large Capacity • 1750 kg",
+              fuel: "Diesel",
+              regs: vehicles.filter(v => v.model?.includes('Bolero')).map(v => v.registrationNumber),
+              color: "border-copper-500/30 bg-copper-500/5 text-copper-400"
+            },
+            {
+              title: "1x Ashok Leyland Dost",
+              sub: "Medium Capacity • 1500 kg",
+              fuel: "Diesel",
+              regs: vehicles.filter(v => v.model?.includes('Dost')).map(v => v.registrationNumber),
+              color: "border-blue-500/30 bg-blue-500/5 text-blue-400"
+            },
+            {
+              title: "4x Tata Ace Gold",
+              sub: "Small • 750 kg (1 Petrol, 3 CNG)",
+              fuel: "1 Petrol, 3 CNG",
+              regs: vehicles.filter(v => v.model?.includes('Tata Ace')).map(v => v.registrationNumber),
+              color: "border-moss-500/30 bg-moss-500/5 text-moss-400"
+            },
+            {
+              title: "2x Mahindra Chotta Hatti",
+              sub: "Small Capacity • 750 kg",
+              fuel: "Diesel",
+              regs: vehicles.filter(v => v.model?.includes('Chotta Hatti')).map(v => v.registrationNumber),
+              color: "border-purple-500/30 bg-purple-500/5 text-purple-400"
+            }
+          ].map((item, idx) => (
+            <div key={idx} className={`p-3.5 rounded-xl border ${item.color}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-loft-100">{item.title}</span>
+                <span className="text-[10px] font-mono uppercase bg-loft-950/80 px-2 py-0.5 rounded border border-loft-800">
+                  {item.fuel}
+                </span>
+              </div>
+              <p className="text-[11px] text-loft-400">{item.sub}</p>
+              <div className="mt-2 pt-2 border-t border-loft-800/60 flex flex-wrap gap-1">
+                {item.regs.length > 0 ? (
+                  item.regs.map((r, i) => (
+                    <span key={i} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-loft-950 border border-loft-800 text-loft-300">
+                      {r}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[10px] text-loft-500">Ready in Fleet</span>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -373,17 +471,28 @@ const AppointWorkTab = () => {
                         </p>
                       </td>
 
-                      {/* Status */}
+                      {/* Status & Queue Position */}
                       <td className="px-6 py-4 align-top">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize inline-block ${
-                          b.status === 'pending' || !b.driverId ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                          b.status === 'driver_assigned' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                          b.status === 'in_transit' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                          b.status === 'completed' ? 'bg-moss-500/10 text-moss-400 border border-moss-500/20' :
-                          'bg-loft-800 text-loft-400'
-                        }`}>
-                          {b.status ? b.status.replace('_', ' ') : 'Pending'}
-                        </span>
+                        <div className="space-y-1">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize inline-block ${
+                            b.status === 'pending' || !b.driverId ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                            b.status === 'driver_assigned' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                            b.status === 'in_transit' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
+                            b.status === 'completed' ? 'bg-moss-500/10 text-moss-400 border border-moss-500/20' :
+                            'bg-loft-800 text-loft-400'
+                          }`}>
+                            {b.status ? b.status.replace('_', ' ') : 'Pending'}
+                          </span>
+                          {b.driverId && b.status !== 'completed' && b.status !== 'cancelled' && (
+                            <span className={`block text-[11px] font-mono px-2 py-0.5 rounded w-fit ${
+                              b.queuePosition === 1 || b.status === 'in_transit'
+                                ? 'bg-moss-500/15 text-moss-400 border border-moss-500/30'
+                                : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                            }`}>
+                              {b.queuePosition === 1 ? '🎯 Active Delivery' : `⏳ Queue #${b.queuePosition} (Up Next)`}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Driver Appointment Selection */}
@@ -402,21 +511,24 @@ const AppointWorkTab = () => {
                             value={isPending ? '' : (currentDriver?.id || '')}
                             onChange={(e) => handleAppointBooking(b.id, e.target.value)}
                             disabled={assigningId === b.id}
-                            className={`input-field py-1.5 px-3 text-xs bg-loft-950 border-loft-800 max-w-[210px] w-full cursor-pointer ${
+                            className={`input-field py-1.5 px-3 text-xs bg-loft-950 border-loft-800 max-w-[230px] w-full cursor-pointer ${
                               isPending ? 'border-copper-500/50 text-loft-100 font-medium' : 'text-loft-300'
                             }`}
                           >
                             <option value="" disabled>
-                              {isPending ? 'Select Driver to Appoint' : 'Reassign Driver'}
+                              {isPending ? 'Appoint Driver / Add to Queue' : 'Reassign Driver / Move Queue'}
                             </option>
-                            {activeDrivers.map((drv) => (
-                              <option key={drv.id} value={drv.id}>
-                                {drv.name} ({drv.phone})
-                              </option>
-                            ))}
+                            {assignableDrivers.map((drv) => {
+                              const qCount = driverQueueMap[drv.id]?.length || 0;
+                              return (
+                                <option key={drv.id} value={drv.id}>
+                                  {drv.name} ({qCount === 0 ? '🟢 Available' : `🟡 ${qCount} in queue`})
+                                </option>
+                              );
+                            })}
                           </select>
 
-                          {activeDrivers.length === 0 && (
+                          {assignableDrivers.length === 0 && (
                             <p className="text-[10px] text-amber-400 mt-1">
                               No active drivers available
                             </p>

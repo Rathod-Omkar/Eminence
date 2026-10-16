@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Navigation, Wallet, AlertTriangle, CheckCircle, Clock, 
-  MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio, Play
+  MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio, Play,
+  Layers, ListOrdered, ArrowUpRight
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useSelector } from 'react-redux';
@@ -15,6 +16,7 @@ const DriverDashboard = () => {
   const [activeTab, setActiveTab] = useState('today');
   const [isOnline, setIsOnline] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [activatingBookingId, setActivatingBookingId] = useState(null);
   const [heatmapData, setHeatmapData] = useState(null);
   const [driverStats, setDriverStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -63,7 +65,8 @@ const DriverDashboard = () => {
             customerPhone: topAssigned.customer?.phone || '',
             cargoType: topAssigned.cargoType || topAssigned.goodsType || 'Commercial Freight',
             vehicleInfo: topAssigned.vehicle ? `${topAssigned.vehicle.type || ''} (${topAssigned.vehicle.registrationNumber || ''})` : 'Assigned Fleet Vehicle',
-            status: topAssigned.status
+            status: topAssigned.status,
+            queuePosition: topAssigned.queuePosition || 1
           });
           if (topAssigned.status === 'in_transit' || topAssigned.status === 'arrived') {
             setIsNavigating(true);
@@ -198,6 +201,21 @@ const DriverDashboard = () => {
     }
   };
 
+  const handleActivateQueuedTrip = async (bookingId) => {
+    if (!user?.id || !bookingId) return;
+    setActivatingBookingId(bookingId);
+    try {
+      const res = await api.put(`/api/drivers/${user.id}/queue/activate/${bookingId}`);
+      if (res.data?.success) {
+        await fetchMetrics();
+      }
+    } catch (err) {
+      console.error('Error activating queued trip:', err);
+    } finally {
+      setActivatingBookingId(null);
+    }
+  };
+
   const startDemoSimulation = () => {
     setActiveRide({
       bookingId: 'demo-sim-' + Date.now().toString(36),
@@ -268,7 +286,7 @@ const DriverDashboard = () => {
             {/* Navigation links */}
             <nav className="space-y-1">
               {[
-                { id: 'today', label: 'Active Trip', icon: Truck },
+                { id: 'today', label: 'Deliveries & Queue', icon: Truck, badge: driverStats?.activeOrdersCount },
                 { id: 'heatmap', label: 'Demand Heatmap', icon: TrendingUp },
                 { id: 'wms', label: 'WMS Scanner', icon: Package },
                 { id: 'earnings', label: 'Earnings & Wallet', icon: Wallet },
@@ -278,14 +296,23 @@ const DriverDashboard = () => {
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
                   disabled={isNavigating && item.id !== 'today'}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all text-sm font-medium cursor-pointer ${
                     activeTab === item.id 
                       ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20' 
                       : 'text-loft-300 hover:text-loft-50 hover:bg-loft-800 disabled:opacity-40 disabled:cursor-not-allowed'
                   }`}
                 >
-                  <item.icon className="w-5 h-5 flex-shrink-0" />
-                  <span>{item.label}</span>
+                  <div className="flex items-center gap-3">
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      activeTab === item.id ? 'bg-white/20 text-white' : 'bg-copper-500/20 text-copper-400 border border-copper-500/30'
+                    }`}>
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -332,7 +359,11 @@ const DriverDashboard = () => {
             },
             { 
               label: 'Assigned Work', 
-              value: driverStats?.activeOrdersCount !== undefined ? `${driverStats.activeOrdersCount} Pending` : '0 Active', 
+              value: driverStats?.activeOrdersCount !== undefined 
+                ? (driverStats.activeOrdersCount > 1 
+                    ? `1 Active + ${driverStats.activeOrdersCount - 1} Queued` 
+                    : `${driverStats.activeOrdersCount} Active`) 
+                : '0 Active', 
               icon: Clock, 
               color: 'text-blue-500', 
               bg: 'bg-blue-500/10' 
@@ -452,6 +483,88 @@ const DriverDashboard = () => {
                         </button>
                       </div>
                     </div>
+
+                    {/* Multi-Delivery Queue Stack */}
+                    {driverStats?.queuedTrips && driverStats.queuedTrips.length > 0 && (
+                      <div className="mt-8 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-loft-800">
+                          <div className="flex items-center gap-2.5">
+                            <Layers className="w-5 h-5 text-amber-400" />
+                            <h4 className="text-lg font-bold text-loft-50">
+                              Assigned Delivery Queue
+                            </h4>
+                            <span className="bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                              {driverStats.queuedTrips.length} Up Next
+                            </span>
+                          </div>
+                          <span className="text-xs text-loft-400">
+                            Auto-promotes when current trip is completed
+                          </span>
+                        </div>
+
+                        <div className="space-y-3">
+                          {driverStats.queuedTrips.map((queued, idx) => (
+                            <div 
+                              key={queued.id} 
+                              className="card p-5 border border-loft-800 bg-loft-900/80 hover:border-loft-700 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+                            >
+                              <div className="space-y-2 flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold px-2.5 py-0.5 rounded-md flex items-center gap-1.5">
+                                    <ListOrdered className="w-3.5 h-3.5" /> Stop #{idx + 2} {idx === 0 ? '(Up Next)' : 'in Queue'}
+                                  </span>
+                                  <span className="text-xs text-loft-400 font-mono">
+                                    #{queued.id.slice(0, 8)}
+                                  </span>
+                                  {queued.tempoType && (
+                                    <span className="text-xs text-loft-400 bg-loft-950 px-2 py-0.5 rounded border border-loft-800">
+                                      {queued.tempoType}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                                  <div className="flex items-start gap-1.5 text-loft-300">
+                                    <span className="w-2 h-2 rounded-full bg-moss-500 mt-1 flex-shrink-0"></span>
+                                    <span className="truncate"><strong className="text-loft-200">From:</strong> {queued.pickupAddress}</span>
+                                  </div>
+                                  <div className="flex items-start gap-1.5 text-loft-300">
+                                    <span className="w-2 h-2 rounded-full bg-copper-500 mt-1 flex-shrink-0"></span>
+                                    <span className="truncate"><strong className="text-loft-200">To:</strong> {queued.dropAddress || 'Scheduled Drop'}</span>
+                                  </div>
+                                </div>
+
+                                <div className="text-[11px] text-loft-400 flex items-center gap-4">
+                                  <span>Client: <strong className="text-loft-300">{queued.customer?.name || 'Commercial Client'}</strong></span>
+                                  <span>Cargo: <strong className="text-loft-300">{queued.cargoType || queued.goodsType || 'Freight'}</strong></span>
+                                </div>
+                              </div>
+
+                              <div className="flex sm:flex-col items-center sm:items-end justify-between w-full md:w-auto gap-3 flex-shrink-0 pt-3 md:pt-0 border-t md:border-t-0 border-loft-800">
+                                <div className="text-right">
+                                  <p className="text-xs text-loft-400 font-medium">Trip Payout</p>
+                                  <p className="text-xl font-bold text-loft-50">₹{Number(queued.estimatedFare || 0).toLocaleString('en-IN')}</p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleActivateQueuedTrip(queued.id)}
+                                  disabled={isLoading || activatingBookingId === queued.id}
+                                  className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-copper-500/40 bg-copper-500/10 hover:bg-copper-500/20 text-copper-300 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                >
+                                  {activatingBookingId === queued.id ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <ArrowUpRight className="w-3.5 h-3.5" />
+                                  )}
+                                  Make Active Now
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </motion.div>
                 ) : (
                   /* 2. STANDBY SCREEN (WHEN NO APPOINTED TRIP FROM ADMIN) */
@@ -588,6 +701,31 @@ const DriverDashboard = () => {
                         </div>
                       </div>
                     </div>
+
+                    {/* Next in Queue Preview during navigation */}
+                    {driverStats?.queuedTrips && driverStats.queuedTrips.length > 0 && (
+                      <div className="card p-5 border border-amber-500/30 bg-loft-950/90 shadow-lg">
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <ListOrdered className="w-3.5 h-3.5" /> Next in Queue (Stop #2)
+                          </h5>
+                          <span className="text-[11px] bg-amber-500/15 border border-amber-500/30 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">
+                            ₹{Number(driverStats.queuedTrips[0].estimatedFare || 0).toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                        <p className="text-xs font-semibold text-loft-100 truncate mb-1">
+                          {driverStats.queuedTrips[0].customer?.name || 'Commercial Client'}
+                        </p>
+                        <p className="text-[11px] text-loft-400 truncate mb-2">
+                          → {driverStats.queuedTrips[0].dropAddress || driverStats.queuedTrips[0].pickupAddress}
+                        </p>
+                        <p className="text-[10px] text-loft-500 font-medium">
+                          {driverStats.queuedTrips.length > 1 
+                            ? `+ ${driverStats.queuedTrips.length - 1} more order(s) waiting in queue` 
+                            : 'Last queued delivery for this run'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}

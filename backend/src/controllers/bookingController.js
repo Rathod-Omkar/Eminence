@@ -336,6 +336,33 @@ const completeBooking = async (req, res) => {
     booking.podHash = podHash;
 
     await booking.save();
+
+    // Advance driver's delivery queue upon completing current trip
+    if (booking.driverId) {
+      const remainingTrips = await Booking.findAll({
+        where: {
+          driverId: booking.driverId,
+          status: ['driver_assigned', 'arrived', 'in_transit']
+        },
+        order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+      });
+
+      // Sequential progression: next in line becomes position 1 (Active)
+      for (let i = 0; i < remainingTrips.length; i++) {
+        remainingTrips[i].queuePosition = i + 1;
+        await remainingTrips[i].save();
+      }
+
+      // If driver has completed all queued deliveries, restore status to active
+      if (remainingTrips.length === 0) {
+        const driver = await Driver.findByPk(booking.driverId);
+        if (driver && driver.status === 'on_trip') {
+          driver.status = 'active';
+          await driver.save();
+        }
+      }
+    }
+
     res.status(200).json({ success: true, booking });
   } catch (error) {
     console.error('Error completing booking:', error);
@@ -391,10 +418,31 @@ const updateBookingStatus = async (req, res) => {
         if (!driver) {
           return res.status(404).json({ success: false, message: 'Driver not found' });
         }
-        if (driver.status === 'on_trip') {
-          return res.status(409).json({ success: false, message: 'Driver is already on a trip' });
+
+        // Multi-delivery queue assignment:
+        // Calculate the driver's current active/queued load
+        const currentActiveTrips = await Booking.findAll({
+          where: {
+            driverId,
+            status: ['driver_assigned', 'arrived', 'in_transit']
+          },
+          order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+        });
+
+        const isAlreadyAssignedToDriver = currentActiveTrips.some(b => b.id === booking.id);
+        if (!isAlreadyAssignedToDriver) {
+          booking.queuePosition = currentActiveTrips.length + 1;
         }
+
         booking.driverId = driverId;
+
+        if (req.body.vehicleId) {
+          booking.vehicleId = req.body.vehicleId;
+        }
+
+        // Driver is marked on_trip while having active or queued trips
+        driver.status = 'on_trip';
+        await driver.save();
       } else if (userRole === 'driver' && driverId === userId) {
         booking.driverId = userId;
       } else {

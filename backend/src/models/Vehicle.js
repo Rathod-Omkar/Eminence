@@ -28,6 +28,11 @@ const Vehicle = sequelize.define('Vehicle', {
   status: {
     type: DataTypes.ENUM('available', 'maintenance', 'on_trip'),
     defaultValue: 'available',
+  },
+  fuelType: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: 'Diesel',
   }
 }, {
   timestamps: true,

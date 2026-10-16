@@ -101,6 +101,11 @@ const bootstrapDatabase = async () => {
       `);
 
       await sequelize.query(`
+        ALTER TABLE "Vehicles" 
+          ADD COLUMN IF NOT EXISTS "fuelType" VARCHAR(255) DEFAULT 'Diesel';
+      `);
+
+      await sequelize.query(`
         ALTER TABLE "Bookings" 
           ADD COLUMN IF NOT EXISTS "stops" JSONB,
           ADD COLUMN IF NOT EXISTS "totalDistance" DECIMAL(10,2),
@@ -114,7 +119,9 @@ const bootstrapDatabase = async () => {
           ADD COLUMN IF NOT EXISTS "esgEmissions" REAL,
           ADD COLUMN IF NOT EXISTS "is3plOutsourced" BOOLEAN DEFAULT false,
           ADD COLUMN IF NOT EXISTS "thirdPartyProvider" VARCHAR(255),
-          ADD COLUMN IF NOT EXISTS "podHash" VARCHAR(255);
+          ADD COLUMN IF NOT EXISTS "podHash" VARCHAR(255),
+          ADD COLUMN IF NOT EXISTS "queuePosition" INTEGER DEFAULT 1,
+          ADD COLUMN IF NOT EXISTS "vehicleId" UUID;
       `);
 
       await sequelize.query(`
@@ -147,7 +154,110 @@ const bootstrapDatabase = async () => {
   }
 };
 
+const initializeFleetAndDrivers = async () => {
+  try {
+    const existingVehicles = await Vehicle.count();
+    if (existingVehicles === 0) {
+      console.log('Initializing specific company fleet (8 tempos)...');
+      const fleetData = [
+        {
+          registrationNumber: 'MH-12-BP-1001',
+          type: 'large',
+          model: 'Mahindra Bolero Pickup',
+          fuelType: 'Diesel',
+          capacityWeight: 1750,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-AD-2001',
+          type: 'medium',
+          model: 'Ashok Leyland Dost',
+          fuelType: 'Diesel',
+          capacityWeight: 1500,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-TA-3001',
+          type: 'small',
+          model: 'Tata Ace Gold (Petrol)',
+          fuelType: 'Petrol',
+          capacityWeight: 750,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-TA-3002',
+          type: 'small',
+          model: 'Tata Ace Gold (CNG)',
+          fuelType: 'CNG',
+          capacityWeight: 750,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-TA-3003',
+          type: 'small',
+          model: 'Tata Ace Gold (CNG)',
+          fuelType: 'CNG',
+          capacityWeight: 750,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-TA-3004',
+          type: 'small',
+          model: 'Tata Ace Gold (CNG)',
+          fuelType: 'CNG',
+          capacityWeight: 750,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-CH-4001',
+          type: 'small',
+          model: 'Mahindra Chotta Hatti',
+          fuelType: 'Diesel',
+          capacityWeight: 750,
+          status: 'available'
+        },
+        {
+          registrationNumber: 'MH-12-CH-4002',
+          type: 'small',
+          model: 'Mahindra Chotta Hatti',
+          fuelType: 'Diesel',
+          capacityWeight: 750,
+          status: 'available'
+        }
+      ];
 
+      for (const v of fleetData) {
+        await Vehicle.create(v);
+      }
+      console.log('Seeded 8 dedicated fleet tempos successfully.');
+    }
+
+    const driverCount = await Driver.count();
+    if (driverCount < 4) {
+      console.log('Provisioning primary fleet drivers...');
+      const bcrypt = require('bcrypt');
+      const defaultPassword = await bcrypt.hash('password123', 10);
+      const defaultDrivers = [
+        { name: 'Ramesh Patil', phone: '9822011001', licenseNumber: 'MH12-2020-001001', email: 'ramesh.driver@eminence.com', status: 'active', rating: 4.9, termsAccepted: true },
+        { name: 'Suresh Shinde', phone: '9822011002', licenseNumber: 'MH12-2020-001002', email: 'suresh.driver@eminence.com', status: 'active', rating: 4.8, termsAccepted: true },
+        { name: 'Ganesh Jadhav', phone: '9822011003', licenseNumber: 'MH12-2020-001003', email: 'ganesh.driver@eminence.com', status: 'active', rating: 4.9, termsAccepted: true },
+        { name: 'Sachin More', phone: '9822011004', licenseNumber: 'MH12-2020-001004', email: 'sachin.driver@eminence.com', status: 'active', rating: 5.0, termsAccepted: true },
+        { name: 'Nitin Pawar', phone: '9822011005', licenseNumber: 'MH12-2020-001005', email: 'nitin.driver@eminence.com', status: 'active', rating: 4.7, termsAccepted: true },
+        { name: 'Rahul Kadam', phone: '9822011006', licenseNumber: 'MH12-2020-001006', email: 'rahul.driver@eminence.com', status: 'active', rating: 4.9, termsAccepted: true }
+      ];
+
+      for (const d of defaultDrivers) {
+        const existing = await Driver.findOne({ where: { phone: d.phone } });
+        if (!existing) {
+          await Driver.create({ ...d, password: defaultPassword });
+        }
+      }
+      console.log('Provisioned fleet drivers successfully.');
+    }
+  } catch (err) {
+    console.warn('Fleet initialization note:', err.message);
+  }
+};
 
 // Function to sync models
 const syncDatabase = async () => {
@@ -162,6 +272,9 @@ const syncDatabase = async () => {
     // Sync schema without expensive alter operations on every start
     await sequelize.sync();
     console.log('Database synced successfully');
+
+    // Ensure dedicated company fleet & qualified drivers exist
+    await initializeFleetAndDrivers();
 
     // Ensure single authoritative admin exists based on .env
     if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV) {

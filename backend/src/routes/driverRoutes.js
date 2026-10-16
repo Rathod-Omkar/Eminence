@@ -74,6 +74,8 @@ router.post('/', protect, authorize('admin'), driverController.createDriver);
 router.patch('/:id/toggle', protect, authorize('driver', 'admin'), driverController.toggleAvailability);
 router.post('/location', protect, authorize('driver'), driverController.updateLocation);
 router.get('/:id/metrics', protect, authorize('driver', 'admin'), driverController.getDriverMetrics);
+router.get('/:id/queue', protect, authorize('driver', 'admin'), driverController.getDriverQueue);
+router.put('/:id/queue/activate/:bookingId', protect, authorize('driver', 'admin'), driverController.activateQueuedTrip);
 router.get('/:id/payslip', protect, authorize('driver', 'admin'), driverController.generatePayslip);
 router.get('/:id/payslip/download', protect, authorize('driver', 'admin'), driverController.downloadPayslip);
 
