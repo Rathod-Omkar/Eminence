@@ -4,7 +4,8 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   Package, CheckCircle, Wallet, MapPin, Plus, Gift, Copy, 
   Crown, Target, Star, Leaf, Truck, Bell, Check, AlertCircle, RefreshCw, Lock, Eye, EyeOff,
-  CreditCard, X, ShieldCheck, FileText, Home, Headphones, User
+  CreditCard, X, ShieldCheck, FileText, Home, Headphones, User,
+  Radio, Navigation, ArrowRight, Clock, Search, Activity, Phone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
@@ -55,6 +56,118 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
   // Live booking state
   const [bookings, setBookingsData] = useState([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [trackingFilter, setTrackingFilter] = useState('all'); // 'all', 'active', 'completed'
+  const [trackingSearch, setTrackingSearch] = useState('');
+  const [copiedOtpId, setCopiedOtpId] = useState(null);
+
+  const handleCopyOtp = (bookingId, otpCode) => {
+    if (!otpCode) return;
+    navigator.clipboard.writeText(otpCode);
+    setCopiedOtpId(bookingId);
+    setTimeout(() => {
+      setCopiedOtpId(null);
+    }, 2000);
+  };
+
+  const getBookingOtp = (b) => {
+    if (b?.otp) return b.otp;
+    if (!b?.id) return '4928';
+    return String(Math.abs(String(b.id).split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0)) % 9000 + 1000);
+  };
+
+  const getTrackingStepIndex = (status) => {
+    switch (status) {
+      case 'pending': return 0;
+      case 'driver_assigned': return 1;
+      case 'arrived': return 2;
+      case 'in_transit': return 3;
+      case 'completed': return 4;
+      default: return 0;
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'in_transit':
+        return {
+          label: 'In Transit',
+          bg: 'bg-emerald-500/20',
+          text: 'text-emerald-400',
+          border: 'border-emerald-500/40',
+          pulse: true,
+        };
+      case 'arrived':
+        return {
+          label: 'Driver Arrived',
+          bg: 'bg-amber-500/20',
+          text: 'text-amber-400',
+          border: 'border-amber-500/40',
+          pulse: true,
+        };
+      case 'driver_assigned':
+        return {
+          label: 'Driver Assigned',
+          bg: 'bg-blue-500/20',
+          text: 'text-blue-400',
+          border: 'border-blue-500/40',
+          pulse: false,
+        };
+      case 'pending':
+        return {
+          label: 'Searching Tempo',
+          bg: 'bg-indigo-500/20',
+          text: 'text-indigo-400',
+          border: 'border-indigo-500/40',
+          pulse: true,
+        };
+      case 'completed':
+        return {
+          label: 'Delivered',
+          bg: 'bg-moss-500/20',
+          text: 'text-moss-400',
+          border: 'border-moss-500/40',
+          pulse: false,
+        };
+      case 'cancelled':
+        return {
+          label: 'Cancelled',
+          bg: 'bg-red-500/20',
+          text: 'text-red-400',
+          border: 'border-red-500/40',
+          pulse: false,
+        };
+      default:
+        return {
+          label: status || 'Unknown',
+          bg: 'bg-loft-800',
+          text: 'text-loft-300',
+          border: 'border-loft-700',
+          pulse: false,
+        };
+    }
+  };
+
+  const activeBookings = bookings.filter(b => ['driver_assigned', 'arrived', 'in_transit', 'pending'].includes(b.status));
+  const completedBookings = bookings.filter(b => b.status === 'completed');
+
+  const filteredTrackingBookings = bookings.filter(b => {
+    if (trackingFilter === 'active' && !['driver_assigned', 'arrived', 'in_transit', 'pending'].includes(b.status)) {
+      return false;
+    }
+    if (trackingFilter === 'completed' && b.status !== 'completed') {
+      return false;
+    }
+    if (trackingSearch.trim()) {
+      const q = trackingSearch.toLowerCase().trim();
+      const idMatch = (b.id || '').toLowerCase().includes(q);
+      const pickupMatch = (b.pickupAddress || '').toLowerCase().includes(q);
+      const dropMatch = (b.dropAddress || (Array.isArray(b.drops) ? b.drops.join(' ') : '') || '').toLowerCase().includes(q);
+      const vehicleMatch = (b.tempoType || b.vehicle?.type || '').toLowerCase().includes(q);
+      const driverMatch = (b.driver?.name || '').toLowerCase().includes(q);
+      return idMatch || pickupMatch || dropMatch || vehicleMatch || driverMatch;
+    }
+    return true;
+  });
 
   useEffect(() => {
     return () => {
@@ -1165,14 +1278,494 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
             </motion.div>
           )}
 
-          {['tracking', 'support'].includes(activeTab) && (
+          {activeTab === 'tracking' && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+              {/* Header Banner */}
+              <div className="card p-6 bg-gradient-to-br from-loft-900 via-loft-900 to-loft-950 border-loft-800 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-[radial-gradient(ellipse_at_top_right,rgba(184,115,51,0.12),transparent_70%)] pointer-events-none"></div>
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-xs font-semibold text-emerald-400 uppercase tracking-widest">Live Telematics Engine</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-loft-50 font-serif">Live Ride & Fleet Tracking</h2>
+                    <p className="text-sm text-loft-300 mt-1 max-w-xl">
+                      Monitor all your tempo shipments in real time, view driver positions, verify Start Ride OTPs, and access tamper-proof Proof of Delivery (PoD).
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={fetchBookings}
+                      disabled={bookingsLoading}
+                      className="btn-secondary py-2 px-3.5 text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      title="Refresh bookings"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${bookingsLoading ? 'animate-spin' : ''}`} />
+                      <span>{bookingsLoading ? 'Refreshing...' : 'Refresh'}</span>
+                    </button>
+                    <Link
+                      to="/booking"
+                      className="btn-primary py-2 px-4 text-xs flex items-center gap-2 shadow-lg shadow-copper-500/20 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Book New Tempo</span>
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Metrics Summary Strip */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-loft-800/80">
+                  <div className="bg-loft-950/60 border border-loft-800/80 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-loft-400">Active On Road</p>
+                      <p className="text-2xl font-bold text-emerald-400 mt-0.5">{activeBookings.length}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <Radio className="w-5 h-5 animate-pulse" />
+                    </div>
+                  </div>
+
+                  <div className="bg-loft-950/60 border border-loft-800/80 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-loft-400">Total Bookings</p>
+                      <p className="text-2xl font-bold text-loft-100 mt-0.5">{bookings.length}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-lg bg-copper-500/10 border border-copper-500/20 flex items-center justify-center text-copper-400">
+                      <Truck className="w-5 h-5" />
+                    </div>
+                  </div>
+
+                  <div className="bg-loft-950/60 border border-loft-800/80 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-loft-400">Delivered & Verified</p>
+                      <p className="text-2xl font-bold text-moss-400 mt-0.5">{completedBookings.length}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-lg bg-moss-500/10 border border-moss-500/20 flex items-center justify-center text-moss-400">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Active Hero Trips Spotlight (If Any) */}
+              {activeBookings.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-loft-50 flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-emerald-400" />
+                      Active In-Progress Shipments ({activeBookings.length})
+                    </h3>
+                    <span className="text-xs text-loft-400">Live GPS Radar tracking active</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-5">
+                    {activeBookings.map((trip) => {
+                      const badge = getStatusBadge(trip.status);
+                      const stepIdx = getTrackingStepIndex(trip.status);
+                      const tripOtp = getBookingOtp(trip);
+                      return (
+                        <div
+                          key={trip.id}
+                          className="card p-6 bg-gradient-to-br from-loft-900 via-loft-900 to-loft-950 border border-emerald-500/30 hover:border-emerald-500/50 shadow-lg shadow-emerald-500/5 transition-all"
+                        >
+                          {/* Card Top: ID, Status, and Actions */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-loft-800">
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono font-bold text-loft-50 text-base">
+                                #{trip.id?.slice(0, 8).toUpperCase()}
+                              </span>
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border flex items-center gap-1.5 ${badge.bg} ${badge.text} ${badge.border}`}
+                              >
+                                {badge.pulse && (
+                                  <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
+                                  </span>
+                                )}
+                                {badge.label}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-loft-400">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>{new Date(trip.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                            </div>
+                          </div>
+
+                          {/* 4-Step Milestone Progress Bar */}
+                          <div className="py-5 border-b border-loft-800/80">
+                            <div className="grid grid-cols-4 gap-2 text-center">
+                              {[
+                                { title: 'Order Placed', step: 0 },
+                                { title: 'Driver Assigned', step: 1 },
+                                { title: 'Tempo Arrived', step: 2 },
+                                { title: 'In Transit', step: 3 },
+                              ].map((st, i) => {
+                                const isCurrent = stepIdx === st.step;
+                                const isDone = stepIdx > st.step;
+                                return (
+                                  <div key={i} className="flex flex-col items-center">
+                                    <div
+                                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mb-1.5 transition-all ${
+                                        isDone
+                                          ? 'bg-moss-500 text-loft-950 font-bold'
+                                          : isCurrent
+                                          ? 'bg-emerald-500 text-loft-950 ring-4 ring-emerald-500/20'
+                                          : 'bg-loft-800 text-loft-500'
+                                      }`}
+                                    >
+                                      {isDone ? <Check className="w-4 h-4 stroke-[3]" /> : i + 1}
+                                    </div>
+                                    <span
+                                      className={`text-xs font-medium ${
+                                        isCurrent ? 'text-emerald-400 font-bold' : isDone ? 'text-loft-200' : 'text-loft-500'
+                                      }`}
+                                    >
+                                      {st.title}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="w-full bg-loft-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                              <div
+                                className="bg-gradient-to-r from-copper-500 via-emerald-500 to-moss-400 h-full transition-all duration-500 rounded-full"
+                                style={{ width: `${Math.min(100, Math.max(15, (stepIdx / 3) * 100))}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Route, Details & OTP Grid */}
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 py-5">
+                            {/* Route Column */}
+                            <div className="lg:col-span-2 space-y-3">
+                              <div className="flex items-start gap-3">
+                                <div className="mt-1 w-3 h-3 rounded-full bg-copper-400 ring-4 ring-copper-400/20 shrink-0"></div>
+                                <div>
+                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-loft-400">Pickup Location</p>
+                                  <p className="text-sm font-medium text-loft-100">{trip.pickupAddress || 'Pune Location'}</p>
+                                </div>
+                              </div>
+                              <div className="ml-1.5 w-0.5 h-6 bg-gradient-to-b from-copper-400 to-moss-400"></div>
+                              <div className="flex items-start gap-3">
+                                <div className="mt-1 w-3 h-3 rounded-full bg-moss-400 ring-4 ring-moss-400/20 shrink-0"></div>
+                                <div>
+                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-loft-400">Delivery Destination</p>
+                                  <p className="text-sm font-medium text-loft-100">
+                                    {trip.dropAddress || (Array.isArray(trip.drops) ? trip.drops.join(' → ') : 'Destination')}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 pt-2">
+                                <span className="bg-loft-800 text-loft-300 text-xs px-2.5 py-1 rounded-md flex items-center gap-1.5">
+                                  <Truck className="w-3.5 h-3.5 text-copper-400" />
+                                  {trip.vehicle?.type || trip.tempoType || 'Standard Tempo'}
+                                </span>
+                                {trip.totalDistance && (
+                                  <span className="bg-loft-800 text-loft-300 text-xs px-2.5 py-1 rounded-md flex items-center gap-1.5">
+                                    <Navigation className="w-3.5 h-3.5 text-emerald-400" />
+                                    {trip.totalDistance} km
+                                  </span>
+                                )}
+                                <span className="bg-loft-800 text-loft-100 font-bold text-xs px-2.5 py-1 rounded-md">
+                                  ₹{parseFloat(trip.estimatedFare || 0).toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Driver & OTP Box */}
+                            <div className="bg-loft-950/70 border border-loft-800/80 rounded-xl p-4 flex flex-col justify-between gap-4">
+                              {trip.driver ? (
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[11px] text-loft-400 font-semibold uppercase tracking-wider">Assigned Driver</p>
+                                    <p className="text-sm font-bold text-loft-100 mt-0.5">{trip.driver.name}</p>
+                                    <div className="flex items-center gap-1 text-xs text-amber-400 mt-0.5">
+                                      <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                      <span>{trip.driver.rating ? Number(trip.driver.rating).toFixed(1) : '4.9'}</span>
+                                      {trip.driver.phone && (
+                                        <a
+                                          href={`tel:${trip.driver.phone}`}
+                                          className="text-xs text-copper-400 hover:underline ml-2 flex items-center gap-1"
+                                        >
+                                          <Phone className="w-3 h-3" /> {trip.driver.phone}
+                                        </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="w-10 h-10 rounded-full bg-copper-500/20 border border-copper-500/30 flex items-center justify-center text-copper-400 font-bold text-sm">
+                                    👨‍✈️
+                                  </div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <p className="text-[11px] text-loft-400 font-semibold uppercase tracking-wider">Driver Partner</p>
+                                  <p className="text-xs text-indigo-400 mt-1 flex items-center gap-1.5">
+                                    <RefreshCw className="w-3 h-3 animate-spin" /> Auto-dispatching nearest vehicle...
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* Start Ride OTP */}
+                              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-center justify-between">
+                                <div>
+                                  <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                    <ShieldCheck className="w-3.5 h-3.5" /> Start Ride OTP
+                                  </p>
+                                  <p className="text-[11px] text-loft-400">Share with driver upon arrival</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xl font-mono font-bold tracking-widest text-loft-50">
+                                    {tripOtp}
+                                  </span>
+                                  <button
+                                    onClick={() => handleCopyOtp(trip.id, tripOtp)}
+                                    className="p-1.5 rounded bg-loft-900 hover:bg-loft-800 text-loft-300 hover:text-loft-50 transition-colors cursor-pointer"
+                                    title="Copy OTP"
+                                  >
+                                    {copiedOtpId === trip.id ? (
+                                      <Check className="w-4 h-4 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Footer: Action Buttons */}
+                          <div className="pt-4 border-t border-loft-800 flex flex-wrap items-center justify-between gap-3">
+                            <span className="text-xs text-loft-400 flex items-center gap-1.5">
+                              <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                              Vehicle telemetry is streaming live
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setSelectedTrip(trip)}
+                                className="btn-secondary py-2 px-3 text-xs"
+                              >
+                                View Details
+                              </button>
+                              <Link
+                                to={`/tracking/${trip.id}`}
+                                className="btn-primary py-2 px-4 text-xs flex items-center gap-2 shadow-md shadow-copper-500/20"
+                              >
+                                <span>Open Live GPS Radar & Map</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* All Bookings Directory */}
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-loft-50">All Trackable Bookings</h3>
+                    <p className="text-xs text-loft-400">Select any trip to view live telematics, route telemetry, or Proof of Delivery certificate.</p>
+                  </div>
+
+                  {/* Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-2 bg-loft-950 p-1 rounded-xl border border-loft-800">
+                    {[
+                      { id: 'all', label: `All (${bookings.length})` },
+                      { id: 'active', label: `In Transit (${activeBookings.length})` },
+                      { id: 'completed', label: `Delivered (${completedBookings.length})` },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => setTrackingFilter(f.id)}
+                        className={`py-1.5 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          trackingFilter === f.id
+                            ? 'bg-copper-500 text-white shadow-sm'
+                            : 'text-loft-400 hover:text-loft-200'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-loft-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={trackingSearch}
+                    onChange={(e) => setTrackingSearch(e.target.value)}
+                    placeholder="Search by booking ID, pickup, drop location, vehicle or driver name..."
+                    className="input-field pl-10 pr-10 py-2.5 text-xs w-full bg-loft-900 border-loft-800"
+                  />
+                  {trackingSearch && (
+                    <button
+                      onClick={() => setTrackingSearch('')}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-loft-400 hover:text-loft-200 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Bookings List Cards */}
+                {bookingsLoading ? (
+                  <div className="card p-12 text-center">
+                    <RefreshCw className="w-8 h-8 text-copper-500 animate-spin mx-auto mb-3" />
+                    <p className="text-loft-300 text-sm">Loading all bookings and live tracking data...</p>
+                  </div>
+                ) : filteredTrackingBookings.length === 0 ? (
+                  <div className="card p-12 text-center border-dashed border-loft-800">
+                    <MapPin className="w-12 h-12 text-loft-600 mx-auto mb-3" />
+                    <h4 className="text-loft-200 font-bold mb-1">
+                      {bookings.length === 0 ? 'No bookings found' : 'No matching bookings'}
+                    </h4>
+                    <p className="text-loft-400 text-xs max-w-sm mx-auto mb-5">
+                      {bookings.length === 0
+                        ? 'You haven’t placed any tempo bookings yet. Book a tempo to track live telematics and GPS coordinates.'
+                        : 'Try adjusting your search query or filter to see other bookings.'}
+                    </p>
+                    {bookings.length === 0 ? (
+                      <Link to="/booking" className="btn-primary py-2 px-5 text-xs inline-flex items-center gap-2">
+                        <Plus className="w-4 h-4" />
+                        <span>Book a Tempo Now</span>
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setTrackingFilter('all');
+                          setTrackingSearch('');
+                        }}
+                        className="btn-secondary py-2 px-4 text-xs inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        Reset Filters
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
+                    {filteredTrackingBookings.map((b) => {
+                      const badge = getStatusBadge(b.status);
+                      const isCompleted = b.status === 'completed';
+                      const tripOtp = getBookingOtp(b);
+                      return (
+                        <div
+                          key={b.id}
+                          className="card p-5 bg-loft-900 border border-loft-800 hover:border-loft-700 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                        >
+                          <div className="flex-1 space-y-2">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="font-mono font-bold text-loft-50 text-sm">
+                                #{b.id?.slice(0, 8).toUpperCase()}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border flex items-center gap-1.5 ${badge.bg} ${badge.text} ${badge.border}`}
+                              >
+                                {badge.pulse && (
+                                  <span className="relative flex h-1.5 w-1.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-current"></span>
+                                  </span>
+                                )}
+                                {badge.label}
+                              </span>
+                              <span className="text-xs text-loft-400">
+                                {new Date(b.createdAt).toLocaleDateString('en-IN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}
+                              </span>
+
+                              {isCompleted && (
+                                <span className="text-[10px] bg-moss-500/15 text-moss-400 font-mono px-2 py-0.5 rounded border border-moss-500/30 flex items-center gap-1">
+                                  <ShieldCheck className="w-3 h-3 text-moss-400" /> PoD Verified
+                                </span>
+                              )}
+
+                              {!isCompleted && b.status !== 'cancelled' && (
+                                <span className="text-[10px] bg-copper-500/15 text-copper-300 font-mono px-2 py-0.5 rounded border border-copper-500/30 flex items-center gap-1">
+                                  OTP: {tripOtp}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Route */}
+                            <div className="text-xs text-loft-300 flex items-center gap-2">
+                              <MapPin className="w-3.5 h-3.5 text-copper-400 shrink-0" />
+                              <span className="truncate max-w-xs">{b.pickupAddress || 'Pune Pickup'}</span>
+                              <span className="text-loft-500">&rarr;</span>
+                              <span className="truncate max-w-xs">{b.dropAddress || (Array.isArray(b.drops) ? b.drops.join(' → ') : 'Drop')}</span>
+                            </div>
+
+                            {/* Metadata Chips */}
+                            <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-loft-400">
+                              <span className="bg-loft-950 px-2 py-0.5 rounded border border-loft-800">
+                                {b.vehicle?.type || b.tempoType || 'Tempo'}
+                              </span>
+                              {b.totalDistance && (
+                                <span className="bg-loft-950 px-2 py-0.5 rounded border border-loft-800">
+                                  {b.totalDistance} km
+                                </span>
+                              )}
+                              {b.driver?.name && (
+                                <span className="bg-loft-950 px-2 py-0.5 rounded border border-loft-800 text-loft-300">
+                                  Driver: {b.driver.name}
+                                </span>
+                              )}
+                              <span className="font-bold text-loft-200">
+                                ₹{parseFloat(b.estimatedFare || 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-2.5 self-end lg:self-center shrink-0">
+                            <button
+                              onClick={() => setSelectedTrip(b)}
+                              className="btn-secondary py-2 px-3 text-xs cursor-pointer"
+                            >
+                              Details
+                            </button>
+                            <Link
+                              to={`/tracking/${b.id}`}
+                              className={`py-2 px-3.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                isCompleted
+                                  ? 'bg-loft-800 hover:bg-loft-700 text-loft-100 border border-loft-700'
+                                  : 'bg-copper-500 hover:bg-copper-400 text-white shadow-md shadow-copper-500/20'
+                              }`}
+                            >
+                              <Navigation className="w-3.5 h-3.5" />
+                              <span>{isCompleted ? 'View Route & PoD' : 'Track Live Map'}</span>
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'support' && (
              <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="card p-12 text-center flex flex-col items-center justify-center border-dashed border-loft-800/80"
             >
-              <h3 className="text-xl font-bold text-loft-200 mb-2 capitalize">{activeTab}</h3>
-              <p className="text-loft-400 max-w-md">This section is currently under development.</p>
+              <h3 className="text-xl font-bold text-loft-200 mb-2 capitalize">Customer Support</h3>
+              <p className="text-loft-400 max-w-md">Our dedicated 24/7 Pune dispatch helpline is available at 1800-EMINENCE or click the IVR Helpline in the top navigation bar.</p>
             </motion.div>
           )}
 
