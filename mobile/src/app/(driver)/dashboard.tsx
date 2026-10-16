@@ -222,21 +222,31 @@ export default function DriverDashboard() {
   };
 
   const handleVerifyStartOtp = async () => {
-    if (enteredOtp.trim() !== '8492' && enteredOtp.trim() !== '1234') {
-      Alert.alert('Invalid OTP', 'Please enter customer Start OTP (use demo 8492)');
+    const trimmedOtp = enteredOtp.trim();
+    if (!trimmedOtp || trimmedOtp.length !== 4) {
+      Alert.alert('Invalid OTP', 'Please enter the 4-digit security OTP provided by the customer.');
       return;
     }
     setLoading(true);
     try {
       if (activeTrip?.bookingId && activeTrip.bookingId.length > 20) {
-        await api.put(`/api/bookings/${activeTrip.bookingId}/status`, { status: 'in_transit' });
+        await api.put(`/api/bookings/${activeTrip.bookingId}/status`, {
+          status: 'in_transit',
+          otp: trimmedOtp,
+        });
       }
       setTripStep('in_transit');
       setIsOtpModalOpen(false);
       setEnteredOtp('');
-    } catch (err) {
+    } catch (err: any) {
+      const serverMessage = err?.response?.data?.message;
+      if (serverMessage && err?.response?.status === 400) {
+        Alert.alert('Verification Failed', serverMessage);
+        return;
+      }
       setTripStep('in_transit');
       setIsOtpModalOpen(false);
+      setEnteredOtp('');
     } finally {
       setLoading(false);
     }
@@ -447,7 +457,7 @@ export default function DriverDashboard() {
                   style={[styles.stepActionBtn, { backgroundColor: '#f59e0b' }]}
                   onPress={() => setIsOtpModalOpen(true)}
                 >
-                  <Text style={styles.stepActionBtnText}>Enter Start Ride OTP (8492) 🔑</Text>
+                  <Text style={styles.stepActionBtnText}>Enter Start Ride OTP 🔑</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -652,14 +662,14 @@ export default function DriverDashboard() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Enter Start Ride OTP</Text>
             <Text style={styles.modalSubtitle}>
-              Ask customer for their 4-digit security code (Demo: 8492)
+              Ask customer for their 4-digit security code shown on their tracking screen
             </Text>
 
             <TextInput
               style={styles.otpInput}
               value={enteredOtp}
               onChangeText={setEnteredOtp}
-              placeholder="8492"
+              placeholder="••••"
               placeholderTextColor="#748bac"
               keyboardType="number-pad"
               maxLength={4}

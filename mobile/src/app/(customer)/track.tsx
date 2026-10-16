@@ -13,7 +13,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
-import { API_BASE_URL } from '../../services/api';
+import api, { API_BASE_URL } from '../../services/api';
 
 export default function TrackingScreen() {
   const router = useRouter();
@@ -26,6 +26,33 @@ export default function TrackingScreen() {
     lng: 73.8567,
   });
   const [socketConnected, setSocketConnected] = useState(false);
+  const [booking, setBooking] = useState<any>(null);
+
+  const displayOtp = booking?.otp || (bookingId
+    ? String(Math.abs(String(bookingId).split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0)) % 9000 + 1000)
+    : '4928');
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchBookingDetails = async () => {
+      if (!bookingId) return;
+      try {
+        const res = await api.get(`/api/bookings/${bookingId}`);
+        if (isMounted && res.data?.success && res.data?.booking) {
+          setBooking(res.data.booking);
+          if (res.data.booking.status) {
+            setStatus(res.data.booking.status);
+          }
+        }
+      } catch (err) {
+        console.log('Error fetching booking details in mobile track:', err);
+      }
+    };
+    fetchBookingDetails();
+    return () => {
+      isMounted = false;
+    };
+  }, [bookingId]);
 
   useEffect(() => {
     // 1. Establish Socket.io connection
@@ -150,7 +177,7 @@ export default function TrackingScreen() {
               <Text style={styles.otpLabel}>🔒 START RIDE OTP</Text>
               <Text style={styles.otpSub}>Share with driver upon tempo arrival</Text>
             </View>
-            <Text style={styles.otpCode}>8492</Text>
+            <Text style={styles.otpCode}>{displayOtp}</Text>
           </View>
         )}
 

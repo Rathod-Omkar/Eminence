@@ -33,6 +33,10 @@ const Tracking = () => {
   const [effectiveBookingId, setEffectiveBookingId] = useState(bookingId || null);
   const [hasNoActiveBooking, setHasNoActiveBooking] = useState(false);
 
+  const displayOtp = booking?.otp || (effectiveBookingId || bookingId || booking?.id
+    ? String(Math.abs(String(effectiveBookingId || bookingId || booking?.id).split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0)) % 9000 + 1000)
+    : '4928');
+
   useEffect(() => {
     let isMounted = true;
 
@@ -390,7 +394,7 @@ const Tracking = () => {
               <p className="text-xs text-loft-300">Share this with the driver</p>
             </div>
             <div className="text-3xl font-mono font-bold tracking-widest text-loft-50">
-              {booking?.otp || '8492'}
+              {displayOtp}
             </div>
           </div>
         )}
