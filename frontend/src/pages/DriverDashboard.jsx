@@ -8,7 +8,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 import { useSelector } from 'react-redux';
 import api from '../services/api';
 import { io } from 'socket.io-client';
-
+import DriverNavigationMap from '../components/Driver/DriverNavigationMap';
 
 const DriverDashboard = () => {
   const { user } = useSelector((state) => state.auth);
@@ -25,7 +25,7 @@ const DriverDashboard = () => {
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [activeRide, setActiveRide] = useState(null);
-  const [_driverPos, setDriverPos] = useState({ lat: 18.5204, lng: 73.8567 });
+  const [driverPos, setDriverPos] = useState({ lat: 18.5204, lng: 73.8567 });
   const [podHash, setPodHash] = useState(null);
   const [showPod, setShowPod] = useState(false);
 
@@ -498,36 +498,11 @@ const DriverDashboard = () => {
                 )
               ) : (
                 <motion.div key="nav" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col md:flex-row gap-6">
-                  {/* Map Mock */}
-                  <div className="flex-1 card overflow-hidden relative min-h-[400px] border-copper-500/30">
-                    <div className="absolute inset-0 bg-[#0f1219] bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 z-0"></div>
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm h-full max-h-[300px]">
-                      {/* CSS Mock Route Line */}
-                      <svg className="w-full h-full text-copper-500 overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        <path d="M10,90 Q40,40 50,20 T90,10" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="animate-pulse" />
-                        <circle cx="90" cy="10" r="5" fill="#e86331" />
-                        {/* Truck Mock */}
-                        <g transform="translate(45,28) rotate(-30)">
-                          <rect width="14" height="20" rx="2" fill="#fff" />
-                          <rect width="14" height="5" rx="1" fill="#888" y="15" />
-                        </g>
-                      </svg>
-                    </div>
-                    {/* Floating Info */}
-                    <div className="absolute top-4 left-4 right-4 bg-moss-500 text-white rounded-xl p-4 shadow-xl z-10 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <Navigation className="w-8 h-8 text-white rotate-45" />
-                        <div>
-                          <h4 className="font-bold text-xl">Active Route Navigation</h4>
-                          <p className="text-white/80">{activeRide?.dropoff ? `En route to ${activeRide.dropoff}` : 'Heading to delivery drop-off'}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <h4 className="font-bold text-xl">{activeRide?.distance || '8.2 km'}</h4>
-                        <p className="text-white/80">{activeRide?.duration || 'In Transit'}</p>
-                      </div>
-                    </div>
-                  </div>
+                  {/* Real-time Interactive Driver Navigation Map */}
+                  <DriverNavigationMap
+                    driverPos={driverPos}
+                    activeRide={activeRide}
+                  />
                   
                   {/* Trip Controls */}
                   <div className="w-full md:w-80 space-y-4">

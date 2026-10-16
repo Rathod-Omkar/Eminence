@@ -12,6 +12,7 @@ import AutocompleteLocationInput from '../components/Customer/Booking/Autocomple
 import RouteMapPreview from '../components/Customer/Booking/RouteMapPreview';
 import { bookingLocationsSchema, bookingDetailsSchema } from '../utils/formSchemas';
 import AuthModal from '../components/Auth/AuthModal';
+import { geocodeAddress, fetchOsrmRoute } from '../utils/puneGeocoder';
 
 const Booking = () => {
   const navigate = useNavigate();
@@ -29,6 +30,11 @@ const Booking = () => {
   const [dropCoords, setDropCoords] = useState([]);
   const [walletBalance, setWalletBalance] = useState(null);
   const [_isLoadingWallet, setIsLoadingWallet] = useState(false);
+
+  // Auto-calculated distance from map route
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false);
+  const [distanceCalculatedByMap, setDistanceCalculatedByMap] = useState(false);
+  const [lastRouteInfo, setLastRouteInfo] = useState(null);
 
   // In-booking Wallet Top-up state
   const [showWalletTopupModal, setShowWalletTopupModal] = useState(false);
@@ -299,6 +305,69 @@ const Booking = () => {
     });
   };
 
+  // Live Map Road Route Distance Calculator
+  const calculateRouteFromMap = useCallback(async (pickupStr, dropsArr) => {
+    const pStr = (typeof pickupStr === 'string' ? pickupStr : formData.pickup)?.trim();
+    const dArr = Array.isArray(dropsArr) ? dropsArr : formData.drops;
+    const validDrops = (dArr || []).filter(d => typeof d === 'string' && d.trim().length > 0);
+
+    if (!pStr || validDrops.length === 0) return null;
+
+    setIsCalculatingDistance(true);
+    try {
+      let pCoord = pickupCoord;
+      if (!pCoord || !pCoord.lat || !pCoord.lng) {
+        pCoord = await geocodeAddress(pStr);
+      }
+      if (!pCoord) {
+        setIsCalculatingDistance(false);
+        return null;
+      }
+
+      const dCoords = [];
+      for (let i = 0; i < validDrops.length; i++) {
+        let dc = dropCoords[i];
+        if (!dc || !dc.lat || !dc.lng) {
+          dc = await geocodeAddress(validDrops[i]);
+        }
+        if (dc) dCoords.push(dc);
+      }
+
+      if (dCoords.length === 0) {
+        setIsCalculatingDistance(false);
+        return null;
+      }
+
+      const route = await fetchOsrmRoute([pCoord, ...dCoords]);
+      if (route && route.distanceKm > 0) {
+        setFormData(prev => ({
+          ...prev,
+          totalDistance: route.distanceKm
+        }));
+        setDistanceCalculatedByMap(true);
+        setLastRouteInfo({
+          distanceKm: route.distanceKm,
+          durationMins: route.durationMins,
+          isFallback: route.isFallback
+        });
+        return route;
+      }
+    } catch (err) {
+      console.warn('Map route distance calculation notice:', err);
+    } finally {
+      setIsCalculatingDistance(false);
+    }
+    return null;
+  }, [formData.pickup, formData.drops, pickupCoord, dropCoords]);
+
+  const handleRouteCalculated = useCallback(({ distanceKm, durationMins, isFallback }) => {
+    if (distanceKm && distanceKm > 0) {
+      setFormData(prev => ({ ...prev, totalDistance: distanceKm }));
+      setDistanceCalculatedByMap(true);
+      setLastRouteInfo({ distanceKm, durationMins, isFallback });
+    }
+  }, []);
+
   const calculateFare = () => {
     // Mock calculation
     const baseRates = { small: 350, medium: 550, large: 1200 };
@@ -461,6 +530,11 @@ const Booking = () => {
       if (isIdentical) {
         setError('Pickup and drop destinations cannot be identical. Please select a different delivery address.');
         return;
+      }
+
+      // Automatically recalculate road distance from map route when moving to vehicle/goods
+      if (formData.pickup && formData.drops.some(d => d && d.trim())) {
+        calculateRouteFromMap(formData.pickup, formData.drops);
       }
     } else if (step === 2) {
       const val = bookingDetailsSchema.safeParse({
@@ -807,11 +881,7 @@ const Booking = () => {
                     dropAddresses={formData.drops}
                     pickupCoord={pickupCoord}
                     dropCoords={dropCoords}
-                    onRouteCalculated={({ distanceKm }) => {
-                      if (distanceKm && distanceKm !== formData.totalDistance) {
-                        setFormData(prev => ({ ...prev, totalDistance: distanceKm }));
-                      }
-                    }}
+                    onRouteCalculated={handleRouteCalculated}
                     className="h-[320px]"
                   />
                 </div>
@@ -886,18 +956,59 @@ const Booking = () => {
                     <input required name="weight" value={formData.weight} onChange={handleChange} type="number" className="input-field" placeholder="e.g. 500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-loft-200 mb-1">Estimated Distance (km)</label>
-                    <input 
-                      required 
-                      name="totalDistance" 
-                      value={formData.totalDistance} 
-                      onChange={handleChange} 
-                      type="number" 
-                      min="1"
-                      step="0.5"
-                      className="input-field" 
-                      placeholder="e.g. 10" 
-                    />
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-loft-200">Estimated Distance (km)</label>
+                      <button
+                        type="button"
+                        onClick={() => calculateRouteFromMap(formData.pickup, formData.drops)}
+                        disabled={isCalculatingDistance}
+                        className="text-xs text-copper-400 hover:text-copper-300 flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                        title="Recalculate road distance using live map route"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isCalculatingDistance ? 'animate-spin' : ''}`} />
+                        <span>Recalculate</span>
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input 
+                        required 
+                        name="totalDistance" 
+                        value={formData.totalDistance} 
+                        onChange={handleChange} 
+                        type="number" 
+                        min="1"
+                        step="0.1"
+                        className="input-field pr-12" 
+                        placeholder="e.g. 10" 
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-loft-400">
+                        km
+                      </span>
+                    </div>
+
+                    {/* Auto-calculated status indicator */}
+                    <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                      {distanceCalculatedByMap ? (
+                        <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Auto-calculated by map route</span>
+                          {lastRouteInfo?.durationMins ? (
+                            <span className="text-loft-400 font-normal">
+                              (~{lastRouteInfo.durationMins} mins)
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : isCalculatingDistance ? (
+                        <span className="text-copper-400 flex items-center gap-1 font-medium animate-pulse">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                          <span>Calculating road distance from map...</span>
+                        </span>
+                      ) : (
+                        <span className="text-loft-400 flex items-center gap-1 truncate max-w-[280px]">
+                          <span>Route: {formData.pickup ? formData.pickup.split(',')[0] : 'Origin'} → {formData.drops[0] ? formData.drops[0].split(',')[0] : 'Drop'}</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 

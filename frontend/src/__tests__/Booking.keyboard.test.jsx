@@ -46,7 +46,10 @@ describe('TC-PRA-001: Booking Form Keyboard Navigation', () => {
     // Type in pickup
     await user.keyboard('Pune Station');
     
-    // Check if we can submit step 1 with keyboard
+    // Check that all step 1 inputs and submit button are present
+    expect(dropInput).toBeInTheDocument();
+    expect(dateInput).toBeInTheDocument();
+    expect(timeInput).toBeInTheDocument();
     expect(nextBtn).toBeInTheDocument();
   });
 });

@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, ZoomControl, useMap }
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { Navigation, Clock, Zap, Sparkles } from 'lucide-react';
-import { matchPuneKnownLocation, extractSearchCandidates } from '../../../utils/puneGeocoder';
+import { geocodeAddress, fetchOsrmRoute } from '../../../utils/puneGeocoder';
 
 // Custom Pin Icon Generator
 const createPinIcon = (label, color = 'copper') => {
@@ -63,79 +63,6 @@ const FitBounds = ({ positions }) => {
   return null;
 };
 
-// Cache for geocoded queries
-const geocodeCache = new Map();
-
-// Helper to geocode an address string to { lat, lng } strictly within Pune metropolitan area
-const geocodeAddress = async (query) => {
-  if (!query || typeof query !== 'string' || query.trim().length < 3) return null;
-  const clean = query.trim();
-
-  if (geocodeCache.has(clean)) {
-    return geocodeCache.get(clean);
-  }
-
-  // 1. Direct landmark & road dictionary check (handles specific landmarks like 'sai maruti', 'jm road', etc.)
-  const directMatch = matchPuneKnownLocation(clean);
-  if (directMatch) {
-    const coords = { lat: directMatch.lat, lng: directMatch.lng };
-    geocodeCache.set(clean, coords);
-    return coords;
-  }
-
-  // 2. Candidate decomposition: extract road/landmark candidates from complex home addresses
-  const candidates = extractSearchCandidates(clean);
-  for (const cand of candidates) {
-    const candMatch = matchPuneKnownLocation(cand);
-    if (candMatch) {
-      const coords = { lat: candMatch.lat, lng: candMatch.lng };
-      geocodeCache.set(clean, coords);
-      return coords;
-    }
-  }
-
-  // 3. Live Nominatim geocoding bounded strictly to Pune & PCMC Metropolitan Region (PMRDA)
-  // Bounding box: min_lon: 73.60, max_lat: 18.85, max_lon: 74.20, min_lat: 18.30
-  try {
-    for (const cand of candidates.slice(0, 3)) {
-      let searchParam = cand;
-      const lowerCand = cand.toLowerCase();
-      if (!lowerCand.includes('pune') && !lowerCand.includes('pcmc') && !lowerCand.includes('maharashtra')) {
-        searchParam = `${cand}, Pune, Maharashtra`;
-      }
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchParam)}&viewbox=73.60,18.85,74.20,18.30&bounded=1&countrycodes=in&limit=1`;
-      const res = await fetch(url, {
-        headers: {
-          'Accept-Language': 'en',
-          'User-Agent': 'Eminence-Transport-MVP/1.0'
-        }
-      });
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const lat = parseFloat(data[0].lat);
-        const lng = parseFloat(data[0].lon);
-        // Validate that coordinates lie within Pune Metropolitan Area
-        if (lat >= 18.25 && lat <= 18.90 && lng >= 73.55 && lng <= 74.25) {
-          const coords = { lat, lng };
-          geocodeCache.set(clean, coords);
-          return coords;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Live geocoding network notice:', err);
-  }
-
-  // 4. Fallback deterministic offset within Pune boundary only
-  const hash = clean.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const fallback = {
-    lat: 18.5204 + ((hash % 80) - 40) * 0.0015,
-    lng: 73.8567 + (((hash * 5) % 80) - 40) * 0.0015
-  };
-  geocodeCache.set(clean, fallback);
-  return fallback;
-};
-
 const RouteMapPreview = ({
   pickupAddress,
   dropAddresses = [],
@@ -150,6 +77,11 @@ const RouteMapPreview = ({
   const [routeStats, setRouteStats] = useState(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const lastNotifiedRef = useRef('');
+  const onRouteCalculatedRef = useRef(onRouteCalculated);
+
+  useEffect(() => {
+    onRouteCalculatedRef.current = onRouteCalculated;
+  }, [onRouteCalculated]);
 
   // 1. Resolve coordinates for Pickup and Drops
   useEffect(() => {
@@ -212,43 +144,26 @@ const RouteMapPreview = ({
     const fetchRoadRoute = async () => {
       setLoadingRoute(true);
       try {
-        // Build coordinate string for OSRM: lon,lat;lon,lat;...
         const points = [pickupCoord, ...dropCoords];
-        const coordString = points.map(p => `${p.lng},${p.lat}`).join(';');
-        const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
-
-        const res = await fetch(url);
-        const data = await res.json();
+        const route = await fetchOsrmRoute(points);
 
         if (isCancelled) return;
 
-        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-          const primaryRoute = data.routes[0];
-          // OSRM returns coordinates as [lon, lat] -> convert to Leaflet [lat, lon]
-          const latLngs = primaryRoute.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-          const distanceKm = parseFloat((primaryRoute.distance / 1000).toFixed(1));
-          const durationMins = Math.max(1, Math.round(primaryRoute.duration / 60));
+        setRoutePolyline(route.polyline);
+        setRouteStats({ distanceKm: route.distanceKm, durationMins: route.durationMins });
 
-          setRoutePolyline(latLngs);
-          setRouteStats({ distanceKm, durationMins });
-
-          // Notify parent only when changed
-          const key = `${distanceKm}-${durationMins}`;
-          if (lastNotifiedRef.current !== key && onRouteCalculated) {
-            lastNotifiedRef.current = key;
-            onRouteCalculated({ distanceKm, durationMins, polyline: latLngs });
-          }
-        } else {
-          // Fallback straight-line polyline if OSRM is unreachable
-          const fallbackPath = points.map(p => [p.lat, p.lng]);
-          setRoutePolyline(fallbackPath);
-          const estKm = Math.max(5, points.length * 7.5);
-          setRouteStats({ distanceKm: estKm, durationMins: Math.round(estKm * 2.5) });
+        // Notify parent only when changed
+        const key = `${route.distanceKm}-${route.durationMins}`;
+        if (lastNotifiedRef.current !== key && onRouteCalculatedRef.current) {
+          lastNotifiedRef.current = key;
+          onRouteCalculatedRef.current({ 
+            distanceKm: route.distanceKm, 
+            durationMins: route.durationMins, 
+            polyline: route.polyline 
+          });
         }
       } catch (err) {
-        console.warn('OSRM routing fallback used:', err);
-        const points = [pickupCoord, ...dropCoords];
-        setRoutePolyline(points.map(p => [p.lat, p.lng]));
+        console.warn('Route calculation notice:', err);
       } finally {
         if (!isCancelled) setLoadingRoute(false);
       }

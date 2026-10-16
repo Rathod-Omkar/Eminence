@@ -19,6 +19,11 @@ export const KNOWN_PUNE_LOCATIONS = {
   'dagdusheth': { lat: 18.5165, lng: 73.8560, name: 'Dagdusheth Ganpati' },
   'swargate bus': { lat: 18.5018, lng: 73.8586, name: 'Swargate Bus Station' },
   'pune airport': { lat: 18.5822, lng: 73.9197, name: 'Pune International Airport, Lohegaon' },
+  'bjs school': { lat: 18.5815, lng: 73.9860, name: 'BJS School, Bakori Road, Wagholi' },
+  'bjs college': { lat: 18.5815, lng: 73.9860, name: 'BJS College, Wagholi' },
+  'bjs': { lat: 18.5815, lng: 73.9860, name: 'BJS School, Wagholi' },
+  'bakori road': { lat: 18.5830, lng: 73.9880, name: 'Bakori Road, Wagholi' },
+  'bakori': { lat: 18.5830, lng: 73.9880, name: 'Bakori Road, Wagholi' },
 
   // Roads & Corridors
   'jm road': { lat: 18.5191, lng: 73.8451, name: 'JM Road (Jangali Maharaj Road)' },
@@ -155,3 +160,158 @@ export const extractSearchCandidates = (rawAddress) => {
 
   return candidates;
 };
+
+// Global memory cache for geocoded queries
+const geocodeCache = new Map();
+
+/**
+ * Geocode an address query to { lat, lng } within Pune Metropolitan Area
+ */
+export const geocodeAddress = async (query) => {
+  if (!query || typeof query !== 'string' || query.trim().length < 2) return null;
+  const clean = query.trim();
+
+  if (geocodeCache.has(clean)) {
+    return geocodeCache.get(clean);
+  }
+
+  // 1. Direct landmark & road dictionary check
+  const directMatch = matchPuneKnownLocation(clean);
+  if (directMatch) {
+    const coords = { lat: directMatch.lat, lng: directMatch.lng };
+    geocodeCache.set(clean, coords);
+    return coords;
+  }
+
+  // 2. Candidate decomposition: extract road/landmark candidates from complex home addresses
+  const candidates = extractSearchCandidates(clean);
+  for (const cand of candidates) {
+    const candMatch = matchPuneKnownLocation(cand);
+    if (candMatch) {
+      const coords = { lat: candMatch.lat, lng: candMatch.lng };
+      geocodeCache.set(clean, coords);
+      return coords;
+    }
+  }
+
+  // 3. Live Nominatim geocoding bounded strictly to Pune & PCMC Metropolitan Region (PMRDA)
+  try {
+    for (const cand of candidates.slice(0, 3)) {
+      let searchParam = cand;
+      const lowerCand = cand.toLowerCase();
+      if (!lowerCand.includes('pune') && !lowerCand.includes('pcmc') && !lowerCand.includes('maharashtra')) {
+        searchParam = `${cand}, Pune, Maharashtra`;
+      }
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchParam)}&viewbox=73.60,18.85,74.20,18.30&bounded=1&countrycodes=in&limit=1`;
+      const res = await fetch(url, {
+        headers: {
+          'Accept-Language': 'en',
+          'User-Agent': 'Eminence-Transport-MVP/1.0'
+        }
+      });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        if (lat >= 18.25 && lat <= 18.90 && lng >= 73.55 && lng <= 74.25) {
+          const coords = { lat, lng };
+          geocodeCache.set(clean, coords);
+          return coords;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Live geocoding network notice:', err);
+  }
+
+  // 4. Fallback deterministic offset within Pune boundary
+  const hash = clean.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const fallback = {
+    lat: 18.5204 + ((hash % 80) - 40) * 0.0015,
+    lng: 73.8567 + (((hash * 5) % 80) - 40) * 0.0015
+  };
+  geocodeCache.set(clean, fallback);
+  return fallback;
+};
+
+/**
+ * Calculates Haversine distance in km between an array of points, factoring in a 1.35x urban road winding coefficient.
+ */
+export const calculateHaversineKm = (coords) => {
+  if (!coords || coords.length < 2) return 0;
+  let totalCrowFlies = 0;
+  const R = 6371; // Earth's radius in km
+
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p1 = coords[i];
+    const p2 = coords[i + 1];
+    if (!p1 || !p2 || typeof p1.lat !== 'number' || typeof p2.lat !== 'number') continue;
+    
+    const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+    const dLng = (p2.lng - p1.lng) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    totalCrowFlies += R * c;
+  }
+
+  return parseFloat(Math.max(1.0, totalCrowFlies * 1.35).toFixed(1));
+};
+
+/**
+ * Fetch real turn-by-turn road route via OSRM, with automatic Haversine fallback
+ */
+export const fetchOsrmRoute = async (points) => {
+  if (!points || points.length < 2) {
+    return { distanceKm: 0, durationMins: 0, polyline: [] };
+  }
+
+  const validPoints = points.filter(p => p && typeof p.lat === 'number' && typeof p.lng === 'number');
+  if (validPoints.length < 2) {
+    return { distanceKm: 0, durationMins: 0, polyline: [] };
+  }
+
+  try {
+    const coordString = validPoints.map(p => `${p.lng},${p.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    const data = await res.json();
+
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const primaryRoute = data.routes[0];
+      const latLngs = primaryRoute.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+      const distanceKm = parseFloat((primaryRoute.distance / 1000).toFixed(1));
+      const durationMins = Math.max(1, Math.round(primaryRoute.duration / 60));
+
+      return {
+        distanceKm,
+        durationMins,
+        polyline: latLngs,
+        isFallback: false
+      };
+    }
+  } catch (err) {
+    console.warn('OSRM routing notice, using road geometry fallback:', err?.message || err);
+  }
+
+  // Robust Fallback
+  const fallbackDistance = calculateHaversineKm(validPoints);
+  const fallbackDuration = Math.max(3, Math.round(fallbackDistance * 2.5));
+  const fallbackPolyline = validPoints.map(p => [p.lat, p.lng]);
+
+  return {
+    distanceKm: fallbackDistance,
+    durationMins: fallbackDuration,
+    polyline: fallbackPolyline,
+    isFallback: true
+  };
+};
+
