@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, ZoomControl, useMap }
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { Navigation, Clock, Zap, Sparkles } from 'lucide-react';
+import { matchPuneKnownLocation, extractSearchCandidates } from '../../../utils/puneGeocoder';
 
 // Custom Pin Icon Generator
 const createPinIcon = (label, color = 'copper') => {
@@ -74,83 +75,58 @@ const geocodeAddress = async (query) => {
     return geocodeCache.get(clean);
   }
 
-  const lower = clean.toLowerCase();
+  // 1. Direct landmark & road dictionary check (handles specific landmarks like 'sai maruti', 'jm road', etc.)
+  const directMatch = matchPuneKnownLocation(clean);
+  if (directMatch) {
+    const coords = { lat: directMatch.lat, lng: directMatch.lng };
+    geocodeCache.set(clean, coords);
+    return coords;
+  }
 
-  // 1. Live Nominatim geocoding bounded strictly to Pune & PCMC Metropolitan Region (PMRDA)
+  // 2. Candidate decomposition: extract road/landmark candidates from complex home addresses
+  const candidates = extractSearchCandidates(clean);
+  for (const cand of candidates) {
+    const candMatch = matchPuneKnownLocation(cand);
+    if (candMatch) {
+      const coords = { lat: candMatch.lat, lng: candMatch.lng };
+      geocodeCache.set(clean, coords);
+      return coords;
+    }
+  }
+
+  // 3. Live Nominatim geocoding bounded strictly to Pune & PCMC Metropolitan Region (PMRDA)
   // Bounding box: min_lon: 73.60, max_lat: 18.85, max_lon: 74.20, min_lat: 18.30
   try {
-    let searchParam = clean;
-    if (!lower.includes('pune') && !lower.includes('pcmc') && !lower.includes('maharashtra')) {
-      searchParam = `${clean}, Pune, Maharashtra`;
-    }
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchParam)}&viewbox=73.60,18.85,74.20,18.30&bounded=1&countrycodes=in&limit=1`;
-    const res = await fetch(url, {
-      headers: {
-        'Accept-Language': 'en',
-        'User-Agent': 'Eminence-Transport-MVP/1.0'
+    for (const cand of candidates.slice(0, 3)) {
+      let searchParam = cand;
+      const lowerCand = cand.toLowerCase();
+      if (!lowerCand.includes('pune') && !lowerCand.includes('pcmc') && !lowerCand.includes('maharashtra')) {
+        searchParam = `${cand}, Pune, Maharashtra`;
       }
-    });
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      const lat = parseFloat(data[0].lat);
-      const lng = parseFloat(data[0].lon);
-      // Validate that coordinates lie within Pune Metropolitan Area
-      if (lat >= 18.25 && lat <= 18.90 && lng >= 73.55 && lng <= 74.25) {
-        const coords = { lat, lng };
-        geocodeCache.set(clean, coords);
-        return coords;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchParam)}&viewbox=73.60,18.85,74.20,18.30&bounded=1&countrycodes=in&limit=1`;
+      const res = await fetch(url, {
+        headers: {
+          'Accept-Language': 'en',
+          'User-Agent': 'Eminence-Transport-MVP/1.0'
+        }
+      });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        // Validate that coordinates lie within Pune Metropolitan Area
+        if (lat >= 18.25 && lat <= 18.90 && lng >= 73.55 && lng <= 74.25) {
+          const coords = { lat, lng };
+          geocodeCache.set(clean, coords);
+          return coords;
+        }
       }
     }
   } catch (err) {
     console.warn('Live geocoding network notice:', err);
   }
 
-  // 2. Pre-seed known distinct Pune / PCMC landmarks and localities
-  // NOTE: Generic city names like 'pune' or 'mumbai' are strictly omitted to prevent identical coordinate collapse
-  const knownLocations = {
-    'brihan maharashtra': { lat: 18.5209, lng: 73.8354 },
-    'bmcc': { lat: 18.5209, lng: 73.8354 },
-    'deccan gymkhana': { lat: 18.5173, lng: 73.8415 },
-    'deccan': { lat: 18.5193, lng: 73.8341 },
-    'wagholi': { lat: 18.5806, lng: 73.9833 },
-    'shivajinagar': { lat: 18.5314, lng: 73.8446 },
-    'hinjewadi phase 1': { lat: 18.5913, lng: 73.7389 },
-    'hinjewadi phase 2': { lat: 18.5870, lng: 73.7220 },
-    'hinjewadi phase 3': { lat: 18.5780, lng: 73.6990 },
-    'hinjewadi': { lat: 18.5913, lng: 73.7389 },
-    'kothrud': { lat: 18.5074, lng: 73.8077 },
-    'viman nagar': { lat: 18.5679, lng: 73.9143 },
-    'hadapsar': { lat: 18.5089, lng: 73.9259 },
-    'bhosari': { lat: 18.6298, lng: 73.8453 },
-    'wakad': { lat: 18.5987, lng: 73.7687 },
-    'baner': { lat: 18.5590, lng: 73.7868 },
-    'aundh': { lat: 18.5580, lng: 73.8075 },
-    'swargate': { lat: 18.5018, lng: 73.8586 },
-    'katraj': { lat: 18.4575, lng: 73.8677 },
-    'kharadi': { lat: 18.5516, lng: 73.9348 },
-    'kalyani nagar': { lat: 18.5477, lng: 73.9037 },
-    'magarpatta': { lat: 18.5158, lng: 73.9272 },
-    'chakan': { lat: 18.7606, lng: 73.8567 },
-    'pimpri': { lat: 18.6279, lng: 73.8009 },
-    'chinchwad': { lat: 18.6298, lng: 73.7820 },
-    'nigdi': { lat: 18.6540, lng: 73.7749 },
-    'yerawada': { lat: 18.5529, lng: 73.8797 },
-    'camp': { lat: 18.5167, lng: 73.8833 },
-    'kondhwa': { lat: 18.4740, lng: 73.8900 },
-    'karve nagar': { lat: 18.4910, lng: 73.8180 },
-    'pashan': { lat: 18.5410, lng: 73.7920 },
-    'bavdhan': { lat: 18.5120, lng: 73.7740 },
-    'fatima nagar': { lat: 18.5030, lng: 73.8980 }
-  };
-
-  for (const [key, coords] of Object.entries(knownLocations)) {
-    if (lower.includes(key)) {
-      geocodeCache.set(clean, coords);
-      return coords;
-    }
-  }
-
-  // 3. Fallback deterministic offset within Pune boundary only
+  // 4. Fallback deterministic offset within Pune boundary only
   const hash = clean.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const fallback = {
     lat: 18.5204 + ((hash % 80) - 40) * 0.0015,

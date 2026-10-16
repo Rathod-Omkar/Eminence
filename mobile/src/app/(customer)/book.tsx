@@ -61,6 +61,11 @@ export default function BookScreen() {
 
   // Known Pune Localities & Landmarks Mapping (zero-latency, distinct coordinates)
   const knownPuneLocations: Record<string, { lat: number; lon: number }> = {
+    'sai maruti': { lat: 18.5195, lon: 73.8448 },
+    'sai service': { lat: 18.5195, lon: 73.8448 },
+    'sp kaanara': { lat: 18.5190, lon: 73.8445 },
+    'jm road': { lat: 18.5191, lon: 73.8451 },
+    'jangali maharaj': { lat: 18.5191, lon: 73.8451 },
     'bmcc': { lat: 18.5209, lon: 73.8354 },
     'brihan maharashtra': { lat: 18.5209, lon: 73.8354 },
     'deccan': { lat: 18.5173, lon: 73.8415 },

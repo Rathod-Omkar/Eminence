@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Search, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { MapPin, Search, Loader2, AlertCircle, ShieldCheck, Home } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { matchPuneKnownLocation, extractSearchCandidates } from '../../../utils/puneGeocoder';
 
 const AutocompleteLocationInput = ({ 
   value, 
@@ -70,11 +71,60 @@ const AutocompleteLocationInput = ({
         const data = await response.json();
         
         // Filter strictly to Pune metropolitan coordinate box (Lat: 18.25-18.90, Lon: 73.55-74.25)
-        const filtered = Array.isArray(data) ? data.filter(item => {
+        let filtered = Array.isArray(data) ? data.filter(item => {
           const lat = parseFloat(item.lat);
           const lon = parseFloat(item.lon);
           return lat >= 18.25 && lat <= 18.90 && lon >= 73.55 && lon <= 74.25;
         }) : [];
+
+        // If literal search yielded 0 results (e.g., custom residential home address with flat/bldg numbers),
+        // intelligently extract candidates & matched Pune roads/landmarks
+        if (filtered.length === 0) {
+          const directMatch = matchPuneKnownLocation(query);
+          const candidates = extractSearchCandidates(query);
+          let matchedRef = directMatch;
+
+          if (!matchedRef) {
+            for (const cand of candidates) {
+              const cm = matchPuneKnownLocation(cand);
+              if (cm) {
+                matchedRef = cm;
+                break;
+              }
+            }
+          }
+
+          if (matchedRef) {
+            filtered = [
+              {
+                place_id: `home_matched_${Date.now()}`,
+                display_name: query,
+                custom_address: query,
+                matched_label: matchedRef.name,
+                lat: matchedRef.lat,
+                lon: matchedRef.lng,
+                is_custom_home: true
+              },
+              {
+                place_id: `road_${Date.now()}`,
+                display_name: `${matchedRef.name}, Pune`,
+                lat: matchedRef.lat,
+                lon: matchedRef.lng,
+                is_road_reference: true
+              }
+            ];
+
+            // Proactively bind coordinates to parent state so map immediately routes to the location
+            if (onSelectDetails) {
+              onSelectDetails({
+                lat: matchedRef.lat,
+                lng: matchedRef.lng,
+                display_name: query,
+                is_estimated: true
+              });
+            }
+          }
+        }
 
         setSuggestions(filtered);
         setIsOpen(true);
@@ -93,15 +143,16 @@ const AutocompleteLocationInput = ({
   }, [query, cityLimit]);
 
   const handleSelect = (location) => {
-    setQuery(location.display_name);
+    const textToKeep = location.custom_address || location.display_name;
+    setQuery(textToKeep);
     setSuggestions([]);
     setIsOpen(false);
-    onChange(location.display_name);
+    onChange(textToKeep);
     if (onSelectDetails) {
       onSelectDetails({
         lat: parseFloat(location.lat),
         lng: parseFloat(location.lon),
-        display_name: location.display_name,
+        display_name: textToKeep,
         raw: location
       });
     }
@@ -112,6 +163,17 @@ const AutocompleteLocationInput = ({
     setQuery(val);
     onChange(val); // Always keep parent in sync with raw typed value
     if (val.length > 2) setIsOpen(true);
+
+    // Auto-resolve coordinates for raw home address in background if it contains a known Pune landmark or road
+    const quickMatch = matchPuneKnownLocation(val);
+    if (quickMatch && onSelectDetails) {
+      onSelectDetails({
+        lat: quickMatch.lat,
+        lng: quickMatch.lng,
+        display_name: val,
+        is_estimated: true
+      });
+    }
   };
 
   return (
@@ -148,20 +210,45 @@ const AutocompleteLocationInput = ({
             </div>
 
             {suggestions.length > 0 ? (
-              suggestions.map((loc, idx) => (
-                <button
-                  key={loc.place_id || idx}
-                  type="button"
-                  onClick={() => handleSelect(loc)}
-                  className="w-full text-left px-4 py-3 hover:bg-loft-800 transition-colors flex items-start gap-3 border-b border-loft-800 last:border-b-0 cursor-pointer"
-                >
-                  <Search className="w-4 h-4 text-loft-400 mt-1 flex-shrink-0" />
-                  <div>
-                    <div className="text-sm font-medium text-loft-50 line-clamp-1">{loc.display_name.split(',')[0]}</div>
-                    <div className="text-xs text-loft-400 line-clamp-1">{loc.display_name.split(',').slice(1).join(',')}</div>
-                  </div>
-                </button>
-              ))
+              suggestions.map((loc, idx) => {
+                if (loc.is_custom_home) {
+                  return (
+                    <button
+                      key={loc.place_id || idx}
+                      type="button"
+                      onClick={() => handleSelect(loc)}
+                      className="w-full text-left px-4 py-3 bg-copper-500/10 hover:bg-copper-500/20 transition-colors flex items-start gap-3 border-b border-loft-800 cursor-pointer"
+                    >
+                      <Home className="w-4 h-4 text-copper-400 mt-1 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="text-xs font-bold text-copper-400 flex items-center gap-1.5 mb-0.5">
+                          <span>Map Specific Home Address</span>
+                          <span className="text-[10px] bg-copper-500/20 text-copper-300 px-1.5 py-0.2 rounded font-mono">
+                            Near {loc.matched_label}
+                          </span>
+                        </div>
+                        <div className="text-sm font-medium text-loft-50 line-clamp-1">{loc.display_name}</div>
+                        <div className="text-[11px] text-loft-400">Preserves full address &amp; maps pickup/drop to {loc.matched_label}</div>
+                      </div>
+                    </button>
+                  );
+                }
+
+                return (
+                  <button
+                    key={loc.place_id || idx}
+                    type="button"
+                    onClick={() => handleSelect(loc)}
+                    className="w-full text-left px-4 py-3 hover:bg-loft-800 transition-colors flex items-start gap-3 border-b border-loft-800 last:border-b-0 cursor-pointer"
+                  >
+                    <Search className="w-4 h-4 text-loft-400 mt-1 flex-shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium text-loft-50 line-clamp-1">{loc.display_name.split(',')[0]}</div>
+                      <div className="text-xs text-loft-400 line-clamp-1">{loc.display_name.split(',').slice(1).join(',')}</div>
+                    </div>
+                  </button>
+                );
+              })
             ) : hasSearched && !loading ? (
               <div className="p-4 text-xs text-loft-300">
                 <div className="flex items-center gap-2 text-copper-400 font-semibold mb-1">
