@@ -257,6 +257,29 @@ export default function BookScreen() {
       return;
     }
 
+    if (date) {
+      const now = new Date();
+      const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const utcToday = now.toISOString().split('T')[0];
+      const earliestAllowed = localToday < utcToday ? localToday : utcToday;
+      if (date < earliestAllowed) {
+        setErrorMessage('Booking date cannot be in the past. Please select today or a future date.');
+        return;
+      }
+
+      const maxDate = new Date();
+      const currentMonth = maxDate.getMonth();
+      maxDate.setMonth(currentMonth + 1);
+      if (maxDate.getMonth() > (currentMonth + 1) % 12) {
+        maxDate.setDate(0);
+      }
+      const maxDateStr = `${maxDate.getFullYear()}-${String(maxDate.getMonth() + 1).padStart(2, '0')}-${String(maxDate.getDate()).padStart(2, '0')}`;
+      if (date > maxDateStr) {
+        setErrorMessage('Advance booking is limited to 1 month only.');
+        return;
+      }
+    }
+
     const estimatedFare = calculateEstimatedFare();
 
     if (paymentMethod === 'wallet') {

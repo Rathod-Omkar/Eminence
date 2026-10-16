@@ -17,14 +17,26 @@ export const loginSchema = z.object({
 export const bookingLocationsSchema = z.object({
   pickup: z.string().trim().min(3, 'Pickup address must be at least 3 characters'),
   drops: z.array(z.string().trim().min(3, 'Drop address must be at least 3 characters')).min(1, 'At least one drop address is required'),
-  date: z.string().min(1, 'Please select a date').refine((val) => {
-    if (!val) return false;
-    const now = new Date();
-    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const utcToday = now.toISOString().split('T')[0];
-    const earliestAllowed = localToday < utcToday ? localToday : utcToday;
-    return val >= earliestAllowed;
-  }, 'Booking date cannot be in the past. Please select today or a future date.'),
+  date: z.string().min(1, 'Please select a date')
+    .refine((val) => {
+      if (!val) return false;
+      const now = new Date();
+      const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const utcToday = now.toISOString().split('T')[0];
+      const earliestAllowed = localToday < utcToday ? localToday : utcToday;
+      return val >= earliestAllowed;
+    }, 'Booking date cannot be in the past. Please select today or a future date.')
+    .refine((val) => {
+      if (!val) return false;
+      const maxDate = new Date();
+      const currentMonth = maxDate.getMonth();
+      maxDate.setMonth(currentMonth + 1);
+      if (maxDate.getMonth() > (currentMonth + 1) % 12) {
+        maxDate.setDate(0);
+      }
+      const maxDateStr = `${maxDate.getFullYear()}-${String(maxDate.getMonth() + 1).padStart(2, '0')}-${String(maxDate.getDate()).padStart(2, '0')}`;
+      return val <= maxDateStr;
+    }, 'Advance booking is limited to 1 month only.'),
   time: z.string().min(1, 'Please select a pickup time')
 });
 

@@ -80,6 +80,56 @@ describe('Module: Booking Date Validation & Wallet Razorpay Integration', () => 
       expect(res.data.success).toBe(false);
       expect(res.data.message).toMatch(/Scheduled booking date cannot be in the past/i);
     });
+
+    test('should reject advance booking date beyond 1 month with 400 status', async () => {
+      const farFuture = new Date();
+      farFuture.setDate(farFuture.getDate() + 60); // 2 months in future
+      const farFutureStr = `${farFuture.getFullYear()}-${String(farFuture.getMonth() + 1).padStart(2, '0')}-${String(farFuture.getDate()).padStart(2, '0')}`;
+
+      const req = {
+        user: { id: testCustomer.id },
+        body: {
+          pickupAddress: 'Shivajinagar, Pune',
+          dropAddress: 'Kothrud, Pune',
+          date: farFutureStr,
+          time: '14:00',
+          estimatedFare: 450,
+          goodsType: 'Electronics',
+          weight: 100,
+          tempoType: 'small'
+        }
+      };
+      const res = mockResponse();
+
+      await createBooking(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/Advance booking is limited to 1 month only/i);
+    });
+
+    test('should reject scheduledAt beyond 1 month with 400 status', async () => {
+      const farFuture = new Date(Date.now() + 86400000 * 60).toISOString();
+      const req = {
+        user: { id: testCustomer.id },
+        body: {
+          pickupAddress: 'Shivajinagar, Pune',
+          dropAddress: 'Kothrud, Pune',
+          scheduledAt: farFuture,
+          estimatedFare: 450,
+          goodsType: 'Electronics',
+          weight: 100,
+          tempoType: 'small'
+        }
+      };
+      const res = mockResponse();
+
+      await createBooking(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/Advance booking is limited to 1 month only/i);
+    });
   });
 
   describe('Wallet Top-Up Order Creation', () => {

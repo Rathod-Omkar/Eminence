@@ -107,6 +107,16 @@ const Booking = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
+
+  const maxBookingDateStr = (() => {
+    const d = new Date();
+    const currentMonth = d.getMonth();
+    d.setMonth(currentMonth + 1);
+    if (d.getMonth() > (currentMonth + 1) % 12) {
+      d.setDate(0);
+    }
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
   
   const [formData, setFormData] = useState({
     pickup: '',
@@ -267,7 +277,21 @@ const Booking = () => {
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    if (name === 'date') {
+      if (value && value < todayStr) {
+        setError('Booking date cannot be in the past. Please select today or a future date.');
+        setFormData(prev => ({ ...prev, date: todayStr }));
+        return;
+      }
+      if (value && value > maxBookingDateStr) {
+        setError('Advance booking is limited to 1 month only.');
+        setFormData(prev => ({ ...prev, date: maxBookingDateStr }));
+        return;
+      }
+      setError('');
+    }
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleDropChange = (index, value) => {
@@ -888,10 +912,23 @@ const Booking = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-loft-200 mb-1">Date</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-loft-200">Date</label>
+                      <span className="text-[11px] text-copper-400 font-medium">Max 1 month advance</span>
+                    </div>
                     <div className="relative">
-                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-loft-400" />
-                      <input required name="date" min={todayStr} value={formData.date} onChange={handleChange} type="date" className="input-field pl-12" style={{ colorScheme: 'dark' }} />
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-loft-400 pointer-events-none" />
+                      <input 
+                        required 
+                        name="date" 
+                        min={todayStr} 
+                        max={maxBookingDateStr}
+                        value={formData.date} 
+                        onChange={handleChange} 
+                        type="date" 
+                        className="input-field pl-12" 
+                        style={{ colorScheme: 'dark' }} 
+                      />
                     </div>
                   </div>
                   <div>

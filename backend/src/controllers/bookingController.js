@@ -60,7 +60,7 @@ const createBooking = async (req, res) => {
     }
     const bookingData = { ...req.body, customerId };
 
-    // Date & Scheduling Validation: Only allow current or future dates (validate immediately before heavy geocoding)
+    // Date & Scheduling Validation: Only allow current or up to 1 month advance dates (validate immediately before heavy geocoding)
     if (bookingData.date) {
       const now = new Date();
       const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -73,6 +73,21 @@ const createBooking = async (req, res) => {
           message: 'Booking date cannot be in the past. Please select today or a future date.'
         });
       }
+
+      const maxDate = new Date();
+      const currentMonth = maxDate.getMonth();
+      maxDate.setMonth(currentMonth + 1);
+      if (maxDate.getMonth() > (currentMonth + 1) % 12) {
+        maxDate.setDate(0);
+      }
+      const maxBookingDate = `${maxDate.getFullYear()}-${String(maxDate.getMonth() + 1).padStart(2, '0')}-${String(maxDate.getDate()).padStart(2, '0')}`;
+
+      if (typeof bookingData.date === 'string' && bookingData.date > maxBookingDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Advance booking is limited to 1 month only.'
+        });
+      }
     }
 
     if (bookingData.scheduledAt) {
@@ -83,6 +98,20 @@ const createBooking = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Scheduled booking date cannot be in the past. Please select today or a future date.'
+        });
+      }
+
+      const maxDate = new Date();
+      const currentMonth = maxDate.getMonth();
+      maxDate.setMonth(currentMonth + 1);
+      if (maxDate.getMonth() > (currentMonth + 1) % 12) {
+        maxDate.setDate(0);
+      }
+      const maxTimestamp = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate(), 23, 59, 59, 999).getTime();
+      if (!isNaN(scheduledTimestamp) && scheduledTimestamp > maxTimestamp) {
+        return res.status(400).json({
+          success: false,
+          message: 'Advance booking is limited to 1 month only.'
         });
       }
     }
