@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   Package, CheckCircle, Wallet, MapPin, Plus, Gift, Copy, 
   Crown, Target, Star, Leaf, Truck, Bell, Check, AlertCircle, RefreshCw, Lock, Eye, EyeOff,
@@ -13,18 +13,39 @@ import ReviewModal from '../components/Customer/ReviewModal';
 import { addressSchema, profileSchema } from '../utils/formSchemas';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
 
-const CustomerDashboard = () => {
+const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) => {
   const { user } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
-  const [activeTab, setActiveTab] = useState('history');
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const queryTab = searchParams.get('tab');
+  const isWalletPath = location.pathname === '/wallet' || location.pathname.startsWith('/wallet/');
+  const shouldOpenRefill = autoOpenTopup || isWalletPath || searchParams.get('refill') === 'true' || searchParams.get('topup') === 'true';
+  const queryAmount = searchParams.get('amount');
+
+  const getInitialActiveTab = () => {
+    if (isWalletPath) return 'payments';
+    if (queryTab === 'wallet' || queryTab === 'payments') return 'payments';
+    if (queryTab) return queryTab;
+    return initialTab;
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialActiveTab);
   const [isAddAddressOpen, setIsAddAddressOpen] = useState(false);
   const [walletData, setWalletData] = useState(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const copyTimeoutRef = useRef(null);
+  const hasAutoOpenedTopupRef = useRef(false);
 
   // Add Funds & Razorpay modal state
   const [showAddFundsModal, setShowAddFundsModal] = useState(false);
-  const [topupAmount, setTopupAmount] = useState('500');
+  const [topupAmount, setTopupAmount] = useState(() => {
+    if (queryAmount && !isNaN(parseFloat(queryAmount)) && parseFloat(queryAmount) >= 10) {
+      return String(Math.round(parseFloat(queryAmount)));
+    }
+    return '500';
+  });
   const [isProcessingTopup, setIsProcessingTopup] = useState(false);
   const [topupError, setTopupError] = useState('');
   const [topupSuccess, setTopupSuccess] = useState('');
@@ -177,6 +198,24 @@ const CustomerDashboard = () => {
       setBookingsLoading(false);
     }
   };
+
+  // Synchronize tab and auto-open refill modal from route/params
+  useEffect(() => {
+    if (isWalletPath || queryTab === 'wallet' || queryTab === 'payments') {
+      setActiveTab('payments');
+    } else if (queryTab) {
+      setActiveTab(queryTab);
+    }
+
+    if (shouldOpenRefill && !hasAutoOpenedTopupRef.current) {
+      hasAutoOpenedTopupRef.current = true;
+      if (queryAmount && !isNaN(parseFloat(queryAmount)) && parseFloat(queryAmount) >= 10) {
+        setTopupAmount(String(Math.round(parseFloat(queryAmount))));
+      }
+      setTopupError('');
+      setShowAddFundsModal(true);
+    }
+  }, [isWalletPath, queryTab, shouldOpenRefill, queryAmount]);
 
   useEffect(() => {
     console.log('CustomerDashboard useEffect running. user:', !!user, 'activeTab:', activeTab);

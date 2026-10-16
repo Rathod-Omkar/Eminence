@@ -631,10 +631,16 @@ export default function BookScreen() {
           </View>
 
           {paymentMethod === 'wallet' && walletBalance !== null && walletBalance < estimatedFare && (
-            <View style={{ marginTop: 10, padding: 10, backgroundColor: 'rgba(239, 68, 68, 0.15)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }}>
-              <Text style={{ color: '#fca5a5', fontSize: 12 }}>
-                ⚠️ Wallet balance (₹{walletBalance.toFixed(2)}) is less than total fare (₹{estimatedFare}). Please choose another method or top up.
+            <View style={{ marginTop: 10, padding: 10, backgroundColor: 'rgba(239, 68, 68, 0.15)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: '#fca5a5', fontSize: 12, flex: 1, marginRight: 8 }}>
+                ⚠️ Wallet balance (₹{walletBalance.toFixed(2)}) is less than total fare (₹{estimatedFare}). Please top up your wallet.
               </Text>
+              <TouchableOpacity
+                onPress={() => router.push('/(customer)/dashboard')}
+                style={{ backgroundColor: '#b87333', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+              >
+                <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>Top Up</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>

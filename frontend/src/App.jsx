@@ -51,7 +51,7 @@ const ProfileModalWrapper = () => {
   const { isAuthenticated, user } = useSelector((state) => state.auth);
   const location = useLocation();
 
-  const customerRoutes = ['/customer/dashboard', '/book', '/booking'];
+  const customerRoutes = ['/customer/dashboard', '/book', '/booking', '/wallet'];
   const isCustomerRoute = customerRoutes.some(path => location.pathname.startsWith(path));
   
   
@@ -110,12 +110,19 @@ function App() {
             
             <Route path="/" element={<Home />} />
             
-            {/* Dashboards */}
+            {/* Dashboards & Wallet */}
             <Route path="/customer/dashboard" element={
               <RequireAuth allowedRoles={['customer']}>
                 <CustomerDashboard />
               </RequireAuth>
             } />
+            <Route path="/wallet" element={
+              <RequireAuth allowedRoles={['customer', 'driver', 'admin']}>
+                <CustomerDashboard initialTab="payments" autoOpenTopup={true} />
+              </RequireAuth>
+            } />
+            <Route path="/customer/dashboard/wallet" element={<Navigate to="/wallet" replace />} />
+            <Route path="/customer/dashboard/payments" element={<Navigate to="/wallet" replace />} />
             <Route path="/driver/dashboard" element={
               <RequireAuth allowedRoles={['driver']}>
                 <DriverDashboard />

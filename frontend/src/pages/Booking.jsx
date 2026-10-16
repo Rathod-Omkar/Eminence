@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, Box, ShieldCheck, Tag, Shield, Crown,
-  Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet
+  Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet,
+  Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -28,6 +29,13 @@ const Booking = () => {
   const [dropCoords, setDropCoords] = useState([]);
   const [walletBalance, setWalletBalance] = useState(null);
   const [_isLoadingWallet, setIsLoadingWallet] = useState(false);
+
+  // In-booking Wallet Top-up state
+  const [showWalletTopupModal, setShowWalletTopupModal] = useState(false);
+  const [topupAmount, setTopupAmount] = useState('500');
+  const [isProcessingTopup, setIsProcessingTopup] = useState(false);
+  const [topupError, setTopupError] = useState('');
+  const [topupSuccess, setTopupSuccess] = useState('');
   
   // Fetch saved addresses for quick selection
   useEffect(() => {
@@ -43,21 +51,40 @@ const Booking = () => {
   }, [user?.id]);
 
   // Fetch wallet balance for user
-  useEffect(() => {
-    if (user?.id) {
-      setIsLoadingWallet(true);
-      api.get('/api/wallet')
-        .then(res => {
-          const bal = res.data?.wallet?.balance ?? res.data?.balance ?? 0;
-          setWalletBalance(parseFloat(bal) || 0);
-        })
-        .catch(err => {
-          console.warn('Could not load wallet balance:', err.message);
-          setWalletBalance(0);
-        })
-        .finally(() => setIsLoadingWallet(false));
+  const fetchWalletBalance = useCallback(async () => {
+    if (!user?.id) return;
+    setIsLoadingWallet(true);
+    try {
+      const res = await api.get('/api/wallet');
+      const bal = res.data?.wallet?.balance ?? res.data?.balance ?? 0;
+      setWalletBalance(parseFloat(bal) || 0);
+    } catch (err) {
+      console.warn('Could not load wallet balance:', err.message);
+      setWalletBalance(0);
+    } finally {
+      setIsLoadingWallet(false);
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    fetchWalletBalance();
+
+    const handleFocus = () => {
+      fetchWalletBalance();
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchWalletBalance();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [fetchWalletBalance]);
 
   // Gamification States
   const [hasInsurance, setHasInsurance] = useState(false);
@@ -311,6 +338,99 @@ const Booking = () => {
     return Math.max(0, Math.round(total));
   };
 
+  const openWalletTopup = (presetAmount) => {
+    const fare = calculateFare();
+    const bal = walletBalance ?? 0;
+    const shortfall = Math.max(10, Math.ceil(fare - bal));
+    setTopupAmount(String(presetAmount || (shortfall > 0 ? shortfall : 500)));
+    setTopupError('');
+    setTopupSuccess('');
+    setShowWalletTopupModal(true);
+  };
+
+  const handleBookingWalletTopup = async (e) => {
+    if (e) e.preventDefault();
+    const amountNum = parseFloat(topupAmount);
+    if (!amountNum || isNaN(amountNum) || amountNum < 10) {
+      setTopupError('Please enter a valid amount of at least ₹10');
+      return;
+    }
+    if (amountNum > 100000) {
+      setTopupError('Maximum single deposit is ₹1,00,000');
+      return;
+    }
+
+    setTopupError('');
+    setIsProcessingTopup(true);
+
+    try {
+      const isScriptLoaded = await loadRazorpayScript();
+      if (!isScriptLoaded) {
+        setTopupError('Razorpay payment gateway failed to load. Please check your internet connection.');
+        setIsProcessingTopup(false);
+        return;
+      }
+
+      const res = await api.post('/api/wallet/create-order', { amount: amountNum });
+      const { order, keyId } = res.data;
+
+      const options = {
+        key: keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        amount: order.amount,
+        currency: order.currency || 'INR',
+        name: 'Eminence Logistics',
+        description: 'Wallet Refill for Booking',
+        order_id: order.id,
+        handler: async function (response) {
+          try {
+            await api.post('/api/wallet/verify-funds', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              amount: amountNum
+            });
+
+            await fetchWalletBalance();
+            setShowWalletTopupModal(false);
+            setTopupSuccess(`₹${amountNum.toFixed(2)} added to your wallet successfully! Balance updated.`);
+            setError('');
+            setTimeout(() => setTopupSuccess(''), 6000);
+          } catch (verifyErr) {
+            console.error('Wallet Top-up Verification Error:', verifyErr);
+            setTopupError(verifyErr.response?.data?.message || 'Payment verification failed. If deducted, funds will be refunded.');
+          } finally {
+            setIsProcessingTopup(false);
+          }
+        },
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+          contact: user?.phone || '',
+        },
+        theme: {
+          color: '#b87333'
+        },
+        modal: {
+          ondismiss: function () {
+            setIsProcessingTopup(false);
+          }
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (failRes) {
+        console.error('Razorpay Payment Failed:', failRes.error);
+        setTopupError(`Payment failed: ${failRes.error?.description || 'Transaction declined'}`);
+        setIsProcessingTopup(false);
+      });
+      rzp.open();
+    } catch (err) {
+      console.error('Add Funds Order Error:', err);
+      setTopupError(err.response?.data?.message || 'Failed to initiate payment. Please try again.');
+      setIsProcessingTopup(false);
+    }
+  };
+
   const handleApplyPromo = async () => {
     if (!promoCode) return;
     try {
@@ -363,6 +483,10 @@ const Booking = () => {
 
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
       const script = document.createElement('script');
       script.src = 'https://checkout.razorpay.com/v1/checkout.js';
       script.onload = () => resolve(true);
@@ -1059,20 +1183,53 @@ const Booking = () => {
                           Balance: <span className="font-semibold text-loft-200">₹{(walletBalance ?? 0).toFixed(2)}</span>
                         </span>
                         {walletBalance !== null && walletBalance < calculateFare() && formData.paymentMethod === 'wallet' && (
-                          <a href="/wallet" target="_blank" rel="noopener noreferrer" className="text-[11px] text-copper-400 hover:underline">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openWalletTopup();
+                            }}
+                            className="text-[11px] text-copper-400 hover:text-copper-300 underline font-semibold flex items-center gap-1 cursor-pointer"
+                          >
                             Recharge ↗
-                          </a>
+                          </button>
                         )}
                       </div>
                     </label>
                   </div>
 
                   {formData.paymentMethod === 'wallet' && walletBalance !== null && walletBalance < calculateFare() && (
-                    <div className="mt-3 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between text-xs text-amber-300">
-                      <span>⚠️ Your wallet balance (₹{walletBalance.toFixed(2)}) is lower than the fare (₹{calculateFare()}).</span>
-                      <a href="/wallet" target="_blank" rel="noopener noreferrer" className="ml-2 font-bold underline hover:text-amber-200 whitespace-nowrap">
-                        Recharge Wallet
-                      </a>
+                    <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-amber-300">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>Your wallet balance (₹{walletBalance.toFixed(2)}) is lower than the fare (₹{calculateFare()}). Shortfall: ₹{(calculateFare() - walletBalance).toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => openWalletTopup()}
+                          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-loft-950 font-bold rounded-lg text-xs transition-colors cursor-pointer shadow-sm"
+                        >
+                          Refill ₹{Math.max(10, Math.ceil(calculateFare() - walletBalance))}
+                        </button>
+                        <a 
+                          href={`/wallet?refill=true&amount=${Math.max(10, Math.ceil(calculateFare() - walletBalance))}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="font-bold underline hover:text-amber-200 text-xs whitespace-nowrap flex items-center gap-1"
+                          title="Open Wallet in new tab"
+                        >
+                          Full Wallet <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {topupSuccess && (
+                    <div className="mt-3 p-3 bg-moss-500/10 border border-moss-500/30 rounded-xl flex items-center gap-2.5 text-xs text-moss-300 animate-fade-in">
+                      <CheckCircle className="w-4 h-4 text-moss-400 shrink-0" />
+                      <span>{topupSuccess}</span>
                     </div>
                   )}
                 </div>
@@ -1198,6 +1355,176 @@ const Booking = () => {
                   {isVoiceSubmitting ? 'Booking with AI...' : '⚡ Instant Book with AI'}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Wallet Top-up & Refill Modal for Instant Booking */}
+        {showWalletTopupModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-loft-950/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-loft-900 border border-copper-500/30 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl relative"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-loft-800 flex items-center justify-between bg-loft-950/40">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-copper-500/10 border border-copper-500/20 text-copper-400 flex items-center justify-center">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-loft-50">Refill Wallet for Booking</h3>
+                    <p className="text-xs text-loft-400">Instant recharge via Razorpay</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => !isProcessingTopup && setShowWalletTopupModal(false)}
+                  disabled={isProcessingTopup}
+                  className="p-2 text-loft-400 hover:text-loft-100 hover:bg-loft-800 rounded-lg transition-colors cursor-pointer"
+                  aria-label="Close modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Form Content */}
+              <form onSubmit={handleBookingWalletTopup} className="p-6 space-y-5">
+                {/* Balance & Shortfall Breakdown */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-3 rounded-xl bg-loft-950/60 border border-loft-800/80">
+                    <span className="text-loft-400 block mb-0.5">Current Balance</span>
+                    <span className="text-sm font-bold text-loft-100">
+                      ₹{(walletBalance ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-loft-950/60 border border-loft-800/80">
+                    <span className="text-loft-400 block mb-0.5">Trip Fare</span>
+                    <span className="text-sm font-bold text-copper-400">
+                      ₹{calculateFare().toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {walletBalance !== null && walletBalance < calculateFare() && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-300">
+                    <span>Shortfall to complete booking:</span>
+                    <span className="font-bold text-sm">₹{(calculateFare() - walletBalance).toFixed(2)}</span>
+                  </div>
+                )}
+
+                {/* Amount input */}
+                <div>
+                  <label className="block text-xs font-semibold text-loft-300 uppercase tracking-wider mb-2">
+                    Refill Amount (₹)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-bold text-copper-400">₹</span>
+                    <input
+                      type="number"
+                      min="10"
+                      max="100000"
+                      value={topupAmount}
+                      onChange={(e) => {
+                        setTopupAmount(e.target.value);
+                        setTopupError('');
+                      }}
+                      placeholder="e.g. 500"
+                      className="input-field pl-9 pr-4 py-3 text-xl font-bold tracking-wide"
+                      required
+                      autoFocus
+                    />
+                  </div>
+                  <span className="text-[11px] text-loft-400 mt-1 block">Min ₹10 • Max ₹1,00,000</span>
+                </div>
+
+                {/* Quick Selection Chips */}
+                <div>
+                  <label className="block text-xs font-semibold text-loft-400 mb-2">Quick Select</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      Math.max(10, Math.ceil(calculateFare() - (walletBalance || 0))),
+                      200,
+                      500,
+                      1000
+                    ]
+                      .filter((amt, idx, arr) => arr.indexOf(amt) === idx && amt >= 10)
+                      .slice(0, 4)
+                      .map((amt) => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => {
+                            setTopupAmount(String(amt));
+                            setTopupError('');
+                          }}
+                          className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                            topupAmount === String(amt)
+                              ? 'bg-copper-500/20 border-copper-500 text-copper-300'
+                              : 'bg-loft-950/60 border-loft-800 text-loft-300 hover:border-copper-500/50'
+                          }`}
+                        >
+                          +₹{amt}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {topupError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{topupError}</span>
+                  </div>
+                )}
+
+                {/* Trust badge */}
+                <div className="flex items-center justify-between text-[11px] text-loft-400 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-moss-400" />
+                    <span>Secure 256-bit encryption</span>
+                  </div>
+                  <a
+                    href={`/wallet?refill=true&amount=${topupAmount || 500}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-copper-400 hover:underline flex items-center gap-1 font-medium"
+                  >
+                    Open Wallet tab <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                {/* Submit button */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowWalletTopupModal(false)}
+                    disabled={isProcessingTopup}
+                    className="btn-secondary flex-1 py-3 text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isProcessingTopup}
+                    className="btn-primary flex-2 py-3 text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isProcessingTopup ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Opening Gateway...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        <span>Refill ₹{topupAmount || 0} via Razorpay</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
