@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, ZoomControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Navigation, Clock, Zap, MapPin, AlertCircle, Sparkles } from 'lucide-react';
+import { Navigation, Clock, Zap, Sparkles } from 'lucide-react';
 
 // Custom Pin Icon Generator
 const createPinIcon = (label, color = 'copper') => {
@@ -341,8 +341,10 @@ const RouteMapPreview = ({
           center={defaultCenter}
           zoom={13}
           scrollWheelZoom={false}
+          zoomControl={false}
           className="w-full h-full z-0"
         >
+          <ZoomControl position="bottomright" />
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -422,6 +424,33 @@ const RouteMapPreview = ({
         </div>
         <span className="text-[11px] text-loft-400">Real-time street routing via OSRM</span>
       </div>
+
+      <style>{`
+        .leaflet-control-zoom {
+          border: 1px solid rgba(184, 115, 51, 0.4) !important;
+          border-radius: 10px !important;
+          overflow: hidden;
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+          margin-right: 14px !important;
+          margin-bottom: 14px !important;
+        }
+        .leaflet-control-zoom-in,
+        .leaflet-control-zoom-out {
+          background-color: #1e293b !important;
+          color: #f1f5f9 !important;
+          border-bottom: 1px solid #334155 !important;
+          width: 32px !important;
+          height: 32px !important;
+          line-height: 30px !important;
+          font-size: 16px !important;
+          transition: all 0.2s ease !important;
+        }
+        .leaflet-control-zoom-in:hover,
+        .leaflet-control-zoom-out:hover {
+          background-color: #334155 !important;
+          color: #ea580c !important;
+        }
+      `}</style>
     </div>
   );
 };
