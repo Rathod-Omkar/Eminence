@@ -126,7 +126,45 @@ const optimizeRoute = async (startPoint, waypoints) => {
   return optimized;
 };
 
+/**
+ * Calculates real driving distance between two points via OSRM,
+ * falling back to Haversine * 1.32 (realistic urban road winding coefficient).
+ * @param {{ lat: number, lng: number }} startPoint
+ * @param {{ lat: number, lng: number }} endPoint
+ * @returns {Promise<number>} distance in km
+ */
+const getRouteDistance = async (startPoint, endPoint) => {
+  if (!startPoint || !endPoint) return 5.0;
+  const lat1 = parseFloat(startPoint.lat);
+  const lng1 = parseFloat(startPoint.lng);
+  const lat2 = parseFloat(endPoint.lat);
+  const lng2 = parseFloat(endPoint.lng);
+
+  if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) return 5.0;
+
+  const crowFlies = calculateDistance({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 });
+  if (crowFlies < 0.1) return 1.0;
+
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`;
+    const response = await axios.get(url, { timeout: 4000 });
+    if (response.data && response.data.code === 'Ok' && response.data.routes && response.data.routes.length > 0) {
+      const roadKm = response.data.routes[0].distance / 1000;
+      if (roadKm > 0) {
+        return parseFloat(roadKm.toFixed(1));
+      }
+    }
+  } catch (err) {
+    console.warn('[Route Optimizer] OSRM distance lookup failed, falling back to urban winding factor:', err.message);
+  }
+
+  // Realistic Pune urban road factor (1.32x crow-flies distance)
+  return parseFloat(Math.max(1.0, crowFlies * 1.32).toFixed(1));
+};
+
 module.exports = {
   optimizeRoute,
-  calculateDistance
+  calculateDistance,
+  getRouteDistance
 };
+

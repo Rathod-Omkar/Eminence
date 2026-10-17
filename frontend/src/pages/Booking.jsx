@@ -109,6 +109,7 @@ const Booking = () => {
   const [isVoiceSubmitting, setIsVoiceSubmitting] = useState(false);
   const [aiParsedBooking, setAiParsedBooking] = useState(null);
   const [isAiReviewStep, setIsAiReviewStep] = useState(false);
+  const [isAiRecalculating, setIsAiRecalculating] = useState(false);
   const recognitionRef = useRef(null);
   const todayStr = (() => {
     const d = new Date();
@@ -245,6 +246,7 @@ const Booking = () => {
     setShowVoiceModal(false);
     setAiParsedBooking(null);
     setIsAiReviewStep(false);
+    setIsAiRecalculating(false);
     setVoiceError('');
   };
 
@@ -356,6 +358,66 @@ const Booking = () => {
     }
     closeVoiceModal();
   };
+
+  // Live route distance and dynamic fare recalculation in AI Confirmation modal
+  const aiPickup = aiParsedBooking?.pickupAddress;
+  const aiDrop = aiParsedBooking?.dropAddress;
+  const aiTempo = aiParsedBooking?.tempoType;
+  const hasAiBooking = Boolean(aiParsedBooking);
+
+  useEffect(() => {
+    if (!isAiReviewStep || !hasAiBooking) return;
+    const pAddr = aiPickup?.trim();
+    const dAddr = aiDrop?.trim();
+    if (!pAddr || !dAddr || pAddr.length < 2 || dAddr.length < 2) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsAiRecalculating(true);
+        const [pGeo, dGeo] = await Promise.all([
+          geocodeAddress(pAddr),
+          geocodeAddress(dAddr)
+        ]);
+
+        if (pGeo && dGeo) {
+          const route = await fetchOsrmRoute([pGeo, dGeo]);
+          if (route && route.distanceKm > 0) {
+            const dist = parseFloat(route.distanceKm.toFixed(1));
+            const tempo = aiTempo || 'small';
+            let fare = 300 + (dist * 20);
+            if (tempo === 'large') fare = 800 + (dist * 50);
+            else if (tempo === 'medium') fare = 500 + (dist * 35);
+            fare = Math.round(fare);
+
+            setAiParsedBooking(prev => {
+              if (!prev) return prev;
+              if (prev.totalDistance === dist && prev.estimatedFare === fare && prev.pickupLat === pGeo.lat && prev.dropLat === dGeo.lat) {
+                return prev;
+              }
+              const emissionRate = tempo === 'large' ? 350 : (tempo === 'medium' ? 200 : 120);
+              const esg = parseFloat(((dist * emissionRate) / 1000).toFixed(2));
+              return {
+                ...prev,
+                pickupLat: pGeo.lat,
+                pickupLng: pGeo.lng,
+                dropLat: dGeo.lat,
+                dropLng: dGeo.lng,
+                totalDistance: dist,
+                estimatedFare: fare,
+                esgEmissions: esg
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('AI modal route recalculation notice:', err);
+      } finally {
+        setIsAiRecalculating(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [isAiReviewStep, hasAiBooking, aiPickup, aiDrop, aiTempo]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -1585,7 +1647,14 @@ const Booking = () => {
                         <div className="bg-loft-950/70 border border-copper-500/40 p-2.5 rounded-lg bg-copper-500/5">
                           <span className="text-[10px] text-loft-400 uppercase block">Estimated Distance & Fare</span>
                           <span className="text-xs font-bold text-emerald-400 block mt-0.5">
-                            {aiParsedBooking.totalDistance || 5} km • ₹{aiParsedBooking.estimatedFare || 300}
+                            {isAiRecalculating ? (
+                              <span className="text-loft-300 font-normal flex items-center gap-1.5 animate-pulse">
+                                <RefreshCw className="w-3 h-3 animate-spin text-copper-400" />
+                                <span>Calculating real route...</span>
+                              </span>
+                            ) : (
+                              `${aiParsedBooking.totalDistance || 5} km • ₹${aiParsedBooking.estimatedFare || 300}`
+                            )}
                           </span>
                         </div>
                       </div>

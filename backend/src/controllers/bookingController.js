@@ -1,5 +1,5 @@
 const { Booking, Customer, Driver, Vehicle, B2BContract, Wallet, Transaction } = require('../models');
-const { optimizeRoute } = require('../services/routeOptimizer');
+const { optimizeRoute, getRouteDistance } = require('../services/routeOptimizer');
 const { geocodeAddress } = require('../services/geocoder');
 const { findPoolMatch } = require('../services/poolingEngine');
 const crypto = require('crypto');
@@ -945,71 +945,95 @@ Return exactly a raw JSON object (and nothing else) with these keys:
       extractedData.time = '10:00:00';
     }
 
-    const tempoType = extractedData.tempoType || 'small';
+    const tempoType = confirmedDetails?.tempoType || extractedData.tempoType || 'small';
     const emissionRate = tempoType === 'large' ? 350 : (tempoType === 'medium' ? 200 : 120);
 
-    let pickupLat = 18.5204, pickupLng = 73.8567; // Fallback Pune
-    let dropLat = 18.5204, dropLng = 73.8567; // Fallback Pune
-    
-    try {
-      if (extractedData.pickupAddress) {
-        const pRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(extractedData.pickupAddress)}`);
-        const pData = await pRes.json();
-        if (pData && pData.length > 0) { pickupLat = parseFloat(pData[0].lat); pickupLng = parseFloat(pData[0].lon); }
+    const pickupAddress = (confirmedDetails?.pickupAddress || extractedData.pickupAddress || 'Unknown Pickup').trim();
+    const dropAddress = (confirmedDetails?.dropAddress || extractedData.dropAddress || 'Unknown Drop').trim();
+
+    let pickupLat = confirmedDetails?.pickupLat;
+    let pickupLng = confirmedDetails?.pickupLng;
+    let dropLat = confirmedDetails?.dropLat;
+    let dropLng = confirmedDetails?.dropLng;
+
+    // Geocode with intelligent Pune dictionary, candidate extraction, and Nominatim
+    if (!pickupLat || !pickupLng || (confirmedDetails && confirmedDetails.pickupAddress !== extractedData.pickupAddress)) {
+      if (pickupAddress && pickupAddress !== 'Unknown Pickup') {
+        const pGeo = await geocodeAddress(pickupAddress);
+        if (pGeo) {
+          pickupLat = pGeo.lat;
+          pickupLng = pGeo.lng;
+        }
       }
-      if (extractedData.dropAddress) {
-        const dRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(extractedData.dropAddress)}`);
-        const dData = await dRes.json();
-        if (dData && dData.length > 0) { dropLat = parseFloat(dData[0].lat); dropLng = parseFloat(dData[0].lon); }
-      }
-    } catch (e) {
-      console.warn('Geocoding failed for voice booking:', e.message);
     }
 
-    // Calculate real distance using Haversine formula
-    const R = 6371; // Earth's radius in km
-    const dLat = (dropLat - pickupLat) * (Math.PI / 180);
-    const dLng = (dropLng - pickupLng) * (Math.PI / 180);
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(pickupLat * (Math.PI / 180)) * Math.cos(dropLat * (Math.PI / 180)) * 
-      Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    let distance = R * c;
-    
-    // If coordinates are identical or fallback failed, use minimum distance 5km
-    if (distance < 1) distance = 5.0;
+    if (!dropLat || !dropLng || (confirmedDetails && confirmedDetails.dropAddress !== extractedData.dropAddress)) {
+      if (dropAddress && dropAddress !== 'Unknown Drop') {
+        const dGeo = await geocodeAddress(dropAddress);
+        if (dGeo) {
+          dropLat = dGeo.lat;
+          dropLng = dGeo.lng;
+        }
+      }
+    }
+
+    // Default Pune fallbacks if geocoding completely fails
+    if (!pickupLat || !pickupLng) {
+      pickupLat = 18.5204;
+      pickupLng = 73.8567;
+    }
+    if (!dropLat || !dropLng) {
+      dropLat = 18.5204;
+      dropLng = 73.8567;
+    }
+
+    // Determine accurate road driving distance
+    let distance = 0;
+    if (confirmedDetails?.totalDistance && typeof confirmedDetails.totalDistance === 'number' && confirmedDetails.totalDistance > 0) {
+      distance = confirmedDetails.totalDistance;
+    } else {
+      distance = await getRouteDistance(
+        { lat: pickupLat, lng: pickupLng },
+        { lat: dropLat, lng: dropLng }
+      );
+    }
+
+    if (distance < 1.0) distance = 1.0;
 
     const esgEmissions = parseFloat(((distance * emissionRate) / 1000).toFixed(2));
     
     // Dynamic Fare Calculation (Base Fare + Per KM rate)
     let estimatedFare = 0;
-    if (tempoType === 'large') {
-      estimatedFare = 800 + (distance * 50); // 800 base + 50/km
-    } else if (tempoType === 'medium') {
-      estimatedFare = 500 + (distance * 35); // 500 base + 35/km
+    if (confirmedDetails?.estimatedFare && typeof confirmedDetails.estimatedFare === 'number' && confirmedDetails.estimatedFare > 0) {
+      estimatedFare = Math.round(confirmedDetails.estimatedFare);
     } else {
-      estimatedFare = 300 + (distance * 20); // 300 base + 20/km
+      if (tempoType === 'large') {
+        estimatedFare = 800 + (distance * 50); // 800 base + 50/km
+      } else if (tempoType === 'medium') {
+        estimatedFare = 500 + (distance * 35); // 500 base + 35/km
+      } else {
+        estimatedFare = 300 + (distance * 20); // 300 base + 20/km
+      }
+      estimatedFare = Math.round(estimatedFare);
     }
-    estimatedFare = Math.round(estimatedFare);
 
     const finalBookingData = {
       customerId,
-      pickupAddress: extractedData.pickupAddress || 'Unknown Pickup',
-      dropAddress: extractedData.dropAddress || 'Unknown Drop',
+      pickupAddress,
+      dropAddress,
       pickupLat,
       pickupLng,
       dropLat,
       dropLng,
-      date: extractedData.date,
-      time: extractedData.time,
-      goodsType: extractedData.goodsType,
-      weight: extractedData.weight,
+      date: confirmedDetails?.date || extractedData.date,
+      time: confirmedDetails?.time || extractedData.time,
+      goodsType: confirmedDetails?.goodsType || extractedData.goodsType,
+      weight: confirmedDetails?.weight || extractedData.weight,
       tempoType,
-      totalDistance: parseFloat(distance.toFixed(2)),
+      totalDistance: parseFloat(distance.toFixed(1)),
       esgEmissions,
       estimatedFare,
-      paymentMethod: 'cash',
+      paymentMethod: confirmedDetails?.paymentMethod || 'cash',
       otp: crypto.randomInt(1000, 10000).toString(),
       status: 'pending'
     };
