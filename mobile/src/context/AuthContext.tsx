@@ -103,8 +103,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               localStorage.removeItem('userData');
             }
           } else {
+            const parsedUser = JSON.parse(storedUser);
+            if (parsedUser && (parsedUser.role === 'driver' || parsedUser.role === 'admin')) {
+              parsedUser.isProfileComplete = true;
+            }
             setToken(storedToken);
-            setUser(JSON.parse(storedUser));
+            setUser(parsedUser);
           }
         }
       } catch (e) {
@@ -118,16 +122,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const saveAuthSession = async (jwtToken: string, userData: User) => {
+    const normalizedUser: User = {
+      ...userData,
+      isProfileComplete: (userData.role === 'driver' || userData.role === 'admin') ? true : !!userData.isProfileComplete,
+    };
     setToken(jwtToken);
-    setUser(userData);
+    setUser(normalizedUser);
 
     try {
       if (Platform.OS !== 'web') {
         await SecureStore.setItemAsync('userToken', jwtToken);
-        await SecureStore.setItemAsync('userData', JSON.stringify(userData));
+        await SecureStore.setItemAsync('userData', JSON.stringify(normalizedUser));
       } else {
         localStorage.setItem('userToken', jwtToken);
-        localStorage.setItem('userData', JSON.stringify(userData));
+        localStorage.setItem('userData', JSON.stringify(normalizedUser));
       }
     } catch (e) {
       console.warn('Failed to persist auth session:', e);

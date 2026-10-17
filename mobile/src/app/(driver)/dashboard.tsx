@@ -23,7 +23,6 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import NetInfo from '@react-native-community/netinfo';
 import { queueOfflineRequest } from '../../services/OfflineSync';
 import { io } from 'socket.io-client';
-import CompleteProfileModal from '../../components/CompleteProfileModal';
 
 export default function DriverDashboard() {
   const router = useRouter();
@@ -869,8 +868,6 @@ export default function DriverDashboard() {
         </View>
       </Modal>
 
-      {/* Profile Completion Modal */}
-      <CompleteProfileModal />
     </View>
   );
 }

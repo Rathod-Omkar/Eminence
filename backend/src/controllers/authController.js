@@ -335,6 +335,9 @@ const getProfile = async (req, res) => {
     const safeUser = user.toJSON ? user.toJSON() : { ...user };
     delete safeUser.password;
     safeUser.role = userRole;
+    if (userRole === 'driver' || userRole === 'admin') {
+      safeUser.isProfileComplete = true;
+    }
     if (safeUser.governmentId) {
       safeUser.governmentId = maskGovernmentId(safeUser.governmentId);
     }
@@ -593,6 +596,7 @@ const phoneVerify = async (req, res) => {
           { expiresIn: process.env.JWT_EXPIRE || '7d' }
         );
         userObj = driver.toJSON ? driver.toJSON() : { ...driver };
+        userObj.isProfileComplete = true;
       } else {
         const isBusiness = userRole === 'business';
         const { Customer } = require('../models');
@@ -651,6 +655,7 @@ const phoneVerify = async (req, res) => {
       }
 
       userObj.role = userRole;
+    if (userRole === 'driver' || userRole === 'admin') { userObj.isProfileComplete = true; }
       res.cookie('accessToken', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -761,6 +766,9 @@ const phoneVerify = async (req, res) => {
 
     const userObj = user.toJSON ? user.toJSON() : { ...user };
     userObj.role = userRole;
+    if (userRole === 'driver' || userRole === 'admin') {
+      userObj.isProfileComplete = true;
+    }
     if (userObj.governmentId) {
       userObj.governmentId = maskGovernmentId(userObj.governmentId);
     }
@@ -1153,6 +1161,7 @@ const login = async (req, res) => {
     const safeUser = user.toJSON ? user.toJSON() : { ...user };
     delete safeUser.password;
     safeUser.role = role;
+    if (role === 'driver' || role === 'admin') { safeUser.isProfileComplete = true; }
     if (safeUser.governmentId) {
       safeUser.governmentId = maskGovernmentId(safeUser.governmentId);
     }

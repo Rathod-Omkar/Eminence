@@ -71,6 +71,7 @@ const createDriver = async (req, res) => {
     });
 
     const driverResponse = driver.toJSON();
+    driverResponse.isProfileComplete = true;
     delete driverResponse.password;
 
     res.status(201).json({ success: true, driver: driverResponse });

@@ -77,7 +77,7 @@ const CompleteProfileModal = () => {
   }, [user]);
 
   // If user is not logged in or already complete, or modal is dismissed, don't render
-  if (!user || user.isProfileComplete || isClosed) return null;
+  if (!user || user.role !== 'customer' || user.isProfileComplete || isClosed) return null;
 
   const handleChange = (e) => {
     const { name, value } = e.target;

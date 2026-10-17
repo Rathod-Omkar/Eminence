@@ -20,7 +20,7 @@ export default function CompleteProfileModal() {
     referralCode: ''
   });
 
-  if (!user || user.isProfileComplete || isClosed) return null;
+  if (!user || user.role !== 'customer' || user.isProfileComplete || isClosed) return null;
 
   const handleDetectLocation = async () => {
     setDetectingLocation(true);
