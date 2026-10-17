@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Navigation, Wallet, AlertTriangle, CheckCircle, Clock, 
+  Navigation, AlertTriangle, CheckCircle, Clock, 
   MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio, Play,
   Layers, ListOrdered, ArrowUpRight
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
 import { io } from 'socket.io-client';
@@ -154,16 +153,6 @@ const DriverDashboard = () => {
     };
   }, [isNavigating, activeRide]);
 
-  // Mock Earnings Data
-  const weeklyEarnings = [
-    { day: 'Mon', amount: 850 },
-    { day: 'Tue', amount: 1200 },
-    { day: 'Wed', amount: 950 },
-    { day: 'Thu', amount: 1500 },
-    { day: 'Fri', amount: 2100 },
-    { day: 'Sat', amount: 1800 },
-    { day: 'Sun', amount: 1250 },
-  ];
 
   const toggleAvailability = async () => {
     setIsLoading(true);
@@ -289,7 +278,6 @@ const DriverDashboard = () => {
                 { id: 'today', label: 'Deliveries & Queue', icon: Truck, badge: driverStats?.activeOrdersCount },
                 { id: 'heatmap', label: 'Demand Heatmap', icon: TrendingUp },
                 { id: 'wms', label: 'WMS Scanner', icon: Package },
-                { id: 'earnings', label: 'Earnings & Wallet', icon: Wallet },
                 { id: 'completed', label: 'Trip History', icon: CheckCircle },
               ].map((item) => (
                 <button
@@ -341,21 +329,14 @@ const DriverDashboard = () => {
           </div>
         
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[
             { 
-              label: 'Total Money Earned', 
-              value: driverStats?.totalEarnings !== undefined ? `₹${Number(driverStats.totalEarnings).toLocaleString('en-IN')}` : '₹0', 
-              icon: Wallet, 
-              color: 'text-copper-500', 
-              bg: 'bg-copper-500/10' 
-            },
-            { 
-              label: 'Completed Orders', 
-              value: driverStats?.completedOrders !== undefined ? driverStats.completedOrders : (user?.totalTrips ?? 0), 
-              icon: CheckCircle, 
-              color: 'text-moss-500', 
-              bg: 'bg-moss-500/10' 
+              label: 'Duty Status', 
+              value: isOnline ? 'Online (Active)' : 'Offline', 
+              icon: isOnline ? Radio : ShieldCheck, 
+              color: isOnline ? 'text-moss-500' : 'text-loft-400', 
+              bg: isOnline ? 'bg-moss-500/10' : 'bg-loft-800' 
             },
             { 
               label: 'Assigned Work', 
@@ -369,11 +350,18 @@ const DriverDashboard = () => {
               bg: 'bg-blue-500/10' 
             },
             { 
+              label: 'Completed Orders', 
+              value: driverStats?.completedOrders !== undefined ? driverStats.completedOrders : (user?.totalTrips ?? 0), 
+              icon: CheckCircle, 
+              color: 'text-moss-500', 
+              bg: 'bg-moss-500/10' 
+            },
+            { 
               label: 'Driver Rating', 
               value: user?.rating ? `${user.rating} ⭐` : '5.0 ⭐', 
               icon: Navigation, 
-              color: 'text-yellow-500', 
-              bg: 'bg-yellow-500/10' 
+              color: 'text-copper-500', 
+              bg: 'bg-copper-500/10' 
             },
           ].map((stat, idx) => (
             <motion.div 
@@ -854,50 +842,6 @@ const DriverDashboard = () => {
             </motion.div>
           )}
 
-          {/* TAB 3: EARNINGS ANALYTICS */}
-          {activeTab === 'earnings' && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-              
-              {/* Earnings Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="card p-6 border-l-4 border-l-copper-500">
-                  <p className="text-loft-400 text-sm mb-1 font-medium flex items-center gap-2"><Wallet className="w-4 h-4"/> Total Net Earnings</p>
-                  <p className="text-3xl font-bold text-loft-50">₹{driverStats?.totalEarnings ? Number(driverStats.totalEarnings).toLocaleString('en-IN') : '0'}</p>
-                  <p className="text-moss-400 text-sm mt-2 flex items-center gap-1"><TrendingUp className="w-3 h-3"/> Direct platform payout</p>
-                </div>
-                <div className="card p-6 border-l-4 border-l-moss-500">
-                  <p className="text-loft-400 text-sm mb-1 font-medium flex items-center gap-2"><CheckCircle className="w-4 h-4"/> Orders Completed</p>
-                  <p className="text-3xl font-bold text-loft-50">{driverStats?.completedOrders ?? 0}</p>
-                  <p className="text-loft-400 text-sm mt-2">Verified deliveries</p>
-                </div>
-                <div className="card p-6 border-l-4 border-l-blue-500">
-                  <p className="text-loft-400 text-sm mb-1 font-medium flex items-center gap-2"><Clock className="w-4 h-4"/> Appointed Work</p>
-                  <p className="text-3xl font-bold text-loft-50">{driverStats?.activeOrdersCount ?? 0}</p>
-                  <p className="text-loft-400 text-sm mt-2">Active dispatched trips</p>
-                </div>
-              </div>
-
-              {/* Chart */}
-              <div className="card p-6">
-                <h3 className="text-lg font-bold text-loft-50 mb-6">Earnings Breakdown (Current Week)</h3>
-                <div className="h-[300px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={weeklyEarnings} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#77849e', fontSize: 12 }} dy={10} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#77849e', fontSize: 12 }} tickFormatter={(val) => `₹${val}`} />
-                      <Tooltip 
-                        cursor={{ fill: '#1a1e26' }}
-                        contentStyle={{ backgroundColor: '#0b0d12', borderColor: '#222939', borderRadius: '8px', color: '#fff' }}
-                        itemStyle={{ color: '#e86331', fontWeight: 'bold' }}
-                        formatter={(value) => [`₹${value}`, 'Earnings']}
-                      />
-                      <Bar dataKey="amount" fill="#e86331" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </motion.div>
-          )}
 
           {activeTab === 'completed' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
