@@ -28,6 +28,7 @@ export default function DriverDashboard() {
   const router = useRouter();
   const { user, token, logout } = useAuth();
 
+  const [activeTab, setActiveTab] = useState<'assigned' | 'tools' | 'history'>('assigned');
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(false);
 
@@ -48,13 +49,6 @@ export default function DriverDashboard() {
   const [showCamera, setShowCamera] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [cameraRef, setCameraRef] = useState<any>(null);
-  // Driver Payslip / Earnings (TC-024)
-  const [payslip, setPayslip] = useState<any>({
-    grossEarnings: 0,
-    platformFee: 0,
-    tdsTax: 0,
-    netPayout: 0,
-  });
 
   // TC-KRI-003: Device Wake Lock Management
   const [isWakeLockActive, setIsWakeLockActive] = useState(false);
@@ -144,16 +138,12 @@ export default function DriverDashboard() {
     completedOrders: 0,
     totalEarnings: 0,
     activeOrdersCount: 0,
+    completedBookings: [],
   });
 
   const fetchDriverData = async () => {
     try {
       if (user?.id) {
-        const payslipRes = await api.get(`/api/drivers/${user.id}/payslip`);
-        if (payslipRes.data?.success && payslipRes.data?.payslip) {
-          setPayslip(payslipRes.data.payslip);
-        }
-
         const metricsRes = await api.get(`/api/drivers/${user.id}/metrics`);
         if (metricsRes.data?.success && metricsRes.data?.metrics) {
           const metrics = metricsRes.data.metrics;
@@ -184,7 +174,7 @@ export default function DriverDashboard() {
         }
       }
     } catch (e) {
-      console.log('Using default payslip and metrics data');
+      console.log('Using default driver metrics data');
     }
   };
 
@@ -256,6 +246,23 @@ export default function DriverDashboard() {
     setIncomingTrip(null);
   };
 
+  // Quick Demo Simulation (Mirroring Web Driver Dashboard Simulation)
+  const startDemoSimulation = () => {
+    setActiveTrip({
+      bookingId: 'DEMO-SIM-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+      pickupAddress: 'Swargate Industrial Depot, Pune',
+      dropAddress: 'Viman Nagar Logistics Hub, Pune',
+      fare: 850,
+      goodsType: 'Automotive Parts & Assemblies',
+      weight: '450 kg',
+      tempoType: 'Bolero Pickup',
+      customerName: 'Tata AutoComp Systems Ltd',
+      customerPhone: '+91 98220 54321',
+      queuePosition: 1,
+    });
+    setTripStep('assigned');
+  };
+
   // TC-022: Complete Trip Lifecycle Transitions
   const handleDriverArrived = async () => {
     setLoading(true);
@@ -322,7 +329,6 @@ export default function DriverDashboard() {
     
     setLoading(true);
     try {
-      // Get exact GPS timestamp and coordinates for Blockchain PoD
       let currentLat = null;
       let currentLng = null;
       try {
@@ -351,13 +357,13 @@ export default function DriverDashboard() {
             setPodHash(res.data.booking.podHash);
           }
         } else {
-          setPodHash('a9f4c33089d3421e90bce24d55');
+          setPodHash('POD-' + Math.random().toString(36).substring(2, 10).toUpperCase());
         }
         setTripStep('completed');
         setPhotoUri(null);
       }
     } catch (err) {
-      setPodHash('a9f4c33089d3421e90bce24d55');
+      setPodHash('POD-' + Math.random().toString(36).substring(2, 10).toUpperCase());
       setTripStep('completed');
     } finally {
       setLoading(false);
@@ -378,12 +384,17 @@ export default function DriverDashboard() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header matching Web Driver Portal */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.pilotBadge}>DRIVER PARTNER</Text>
-          <Text style={styles.userName}>{user?.name}</Text>
-          <Text style={styles.userPhone}>{user?.vehicleNo || 'Vehicle Info Not Available'}</Text>
+        <View style={{ flex: 1 }}>
+          <View style={styles.badgeRow}>
+            <Text style={styles.pilotBadge}>DRIVER PORTAL</Text>
+            <View style={styles.fleetPartnerPill}>
+              <Text style={styles.fleetPartnerPillText}>FLEET PARTNER</Text>
+            </View>
+          </View>
+          <Text style={styles.userName}>{user?.name || 'Driver Partner'}</Text>
+          <Text style={styles.userPhone}>{user?.vehicleNo || 'Fleet Assigned Vehicle'}</Text>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Text style={styles.logoutBtnText}>Logout</Text>
@@ -393,10 +404,10 @@ export default function DriverDashboard() {
       <ScrollView contentContainerStyle={styles.content}>
         {/* TC-020: Online / Offline Duty Switch */}
         <View style={[styles.statusCard, isOnline ? styles.statusCardOnline : styles.statusCardOffline]}>
-          <View>
+          <View style={{ flex: 1, marginRight: 10 }}>
             <Text style={styles.statusLabel}>Duty Status</Text>
             <Text style={[styles.statusState, { color: isOnline ? '#22c55e' : '#a2b2c7' }]}>
-              {isOnline ? '🟢 ONLINE — Receiving Trips' : '⚪ OFFLINE — Shift Paused'}
+              {isOnline ? '🟢 ONLINE — Receiving Assigned Trips' : '⚪ OFFLINE — Shift Paused'}
             </Text>
           </View>
           <Switch
@@ -407,13 +418,24 @@ export default function DriverDashboard() {
           />
         </View>
 
-        {/* Driver Performance & Earnings Summary */}
+        {/* Driver Performance & Earnings Summary (Matching Web Top Stats Grid) */}
         <View style={styles.metricsRow}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>COMPLETED</Text>
-            <Text style={styles.metricValue}>{driverMetrics.completedOrders || 0}</Text>
-            <Text style={styles.metricSub}>Delivered</Text>
+          <View style={[styles.metricCard, styles.metricCardPrimary]}>
+            <Text style={[styles.metricLabel, { color: '#fb923c' }]}>TOTAL EARNED</Text>
+            <Text style={[styles.metricValue, { color: '#fb923c' }]}>
+              ₹{(driverMetrics.totalEarnings || 0).toLocaleString()}
+            </Text>
+            <Text style={styles.metricSub}>Direct Fleet Settlement</Text>
           </View>
+
+          <View style={styles.metricCard}>
+            <Text style={[styles.metricLabel, { color: '#4ade80' }]}>COMPLETED</Text>
+            <Text style={[styles.metricValue, { color: '#4ade80' }]}>
+              {driverMetrics.completedOrders || 0}
+            </Text>
+            <Text style={styles.metricSub}>Delivered Orders</Text>
+          </View>
+
           <View style={styles.metricCard}>
             <Text style={[styles.metricLabel, { color: '#38bdf8' }]}>ASSIGNED</Text>
             <Text style={[styles.metricValue, { color: '#38bdf8' }]}>
@@ -421,377 +443,568 @@ export default function DriverDashboard() {
                 ? `1 + ${(driverMetrics.activeOrdersCount || 0) - 1} Q`
                 : `${driverMetrics.activeOrdersCount || 0} Active`}
             </Text>
-            <Text style={styles.metricSub}>Duty Queue</Text>
-          </View>
-          <View style={[styles.metricCard, styles.metricCardPrimary]}>
-            <Text style={[styles.metricLabel, { color: '#fb923c' }]}>EARNED</Text>
-            <Text style={[styles.metricValue, { color: '#fb923c' }]}>₹{(driverMetrics.totalEarnings || 0).toLocaleString()}</Text>
-            <Text style={styles.metricSub}>Platform</Text>
+            <Text style={styles.metricSub}>Appointed Work</Text>
           </View>
         </View>
 
-        {/* TC-021: Incoming Booking Request Alert */}
-        {isOnline && incomingTrip && !activeTrip && (
-          <View style={styles.incomingCard}>
-            <View style={styles.incomingHeader}>
-              <View style={styles.pulsingDot} />
-              <Text style={styles.incomingTitle}>NEW BOOKING REQUEST</Text>
-              <Text style={styles.incomingFare}>₹{incomingTrip.fare}</Text>
-            </View>
-
-            <View style={styles.incomingBody}>
-              <Text style={styles.incomingRoute}>
-                📍 {incomingTrip.pickupAddress}
-              </Text>
-              <Text style={[styles.incomingRoute, { marginTop: 4 }]}>
-                🎯 {incomingTrip.dropAddress}
-              </Text>
-              <View style={styles.incomingMetaRow}>
-                <Text style={styles.incomingMeta}>{incomingTrip.tempoType}</Text>
-                <Text style={styles.incomingMeta}>•</Text>
-                <Text style={styles.incomingMeta}>{incomingTrip.weight}</Text>
-                <Text style={styles.incomingMeta}>•</Text>
-                <Text style={styles.incomingMeta}>{incomingTrip.goodsType}</Text>
-              </View>
-            </View>
-
-            <View style={styles.incomingActions}>
-              <TouchableOpacity style={styles.declineBtn} onPress={handleDeclineTrip}>
-                <Text style={styles.declineBtnText}>Decline</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.acceptBtn}
-                onPress={handleAcceptTrip}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.acceptBtnText}>ACCEPT TRIP (₹{incomingTrip.fare})</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* TC-022 & TC-KRI-003: Active Trip Step-by-Step Lifecycle & Wake Lock */}
-        {activeTrip && (
-          <View style={styles.activeTripCard}>
-            <View style={styles.activeTripHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-                <Text style={styles.activeTripTitle}>ACTIVE SHIPMENT IN PROGRESS</Text>
-                <View style={styles.activePill}>
-                  <Text style={styles.activePillText}>Stop #1 (Active)</Text>
-                </View>
-              </View>
-              <Text style={styles.activeTripRef}>{activeTrip.bookingId}</Text>
-            </View>
-
-            {/* TC-KRI-003: Device Wake Lock Management Badge */}
-            <View style={[styles.wakeLockBadge, isWakeLockActive ? styles.wakeLockActive : styles.wakeLockInactive]}>
-              <Text style={styles.wakeLockBadgeText}>
-                {isWakeLockActive 
-                  ? '⚡ expo-keep-awake: Screen Kept Awake (Wake Lock Active)' 
-                  : '💤 expo-keep-awake: Wake Lock Released'}
-              </Text>
-            </View>
-
-            {/* Step 1: Heading to Pickup */}
-            {tripStep === 'assigned' && (
-              <View style={styles.stepBox}>
-                <Text style={styles.stepHeading}>Step 1: Proceed to Pickup Point</Text>
-                <Text style={styles.stepAddress}>📍 {activeTrip.pickupAddress}</Text>
-
-                {queuedTrips.length > 0 && (
-                  <View style={styles.nextStopPreview}>
-                    <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
-                    <Text style={styles.nextStopRoute} numberOfLines={1}>
-                      🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
-                    </Text>
-                    <Text style={styles.nextStopFare}>
-                      Payout: ₹{queuedTrips[0].estimatedFare || 0} • {queuedTrips.length > 1 ? `+${queuedTrips.length - 1} more queued` : 'Final stop in queue'}
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={styles.stepActionBtn}
-                  onPress={handleDriverArrived}
-                  disabled={loading}
-                >
-                  <Text style={styles.stepActionBtnText}>I Have Arrived at Pickup 📍</Text>
-                </TouchableOpacity>
+        {/* Tab Switcher (Matching Web Driver Dashboard Tabs) */}
+        <View style={styles.tabSwitcher}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'assigned' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('assigned')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'assigned' && styles.tabBtnTextActive]}>
+              🚚 Assigned Work
+            </Text>
+            {(driverMetrics.activeOrdersCount || 0) > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{driverMetrics.activeOrdersCount}</Text>
               </View>
             )}
+          </TouchableOpacity>
 
-            {/* Step 2: Arrived, Load Cargo & Verify OTP */}
-            {tripStep === 'arrived' && (
-              <View style={styles.stepBox}>
-                <Text style={styles.stepHeading}>Step 2: Loading & Customer Verification</Text>
-                <Text style={styles.stepSubtitle}>
-                  Inspect goods ({activeTrip.goodsType}, {activeTrip.weight}) and ask customer for Start OTP.
-                </Text>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'tools' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('tools')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'tools' && styles.tabBtnTextActive]}>
+              📦 Driver Tools
+            </Text>
+          </TouchableOpacity>
 
-                {queuedTrips.length > 0 && (
-                  <View style={styles.nextStopPreview}>
-                    <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
-                    <Text style={styles.nextStopRoute} numberOfLines={1}>
-                      🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
-                    </Text>
-                    <Text style={styles.nextStopFare}>
-                      Payout: ₹{queuedTrips[0].estimatedFare || 0} • {queuedTrips.length > 1 ? `+${queuedTrips.length - 1} more queued` : 'Final stop in queue'}
-                    </Text>
-                  </View>
-                )}
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'history' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('history')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'history' && styles.tabBtnTextActive]}>
+              📜 Trip History
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-                <TouchableOpacity
-                  style={[styles.stepActionBtn, { backgroundColor: '#f59e0b' }]}
-                  onPress={() => setIsOtpModalOpen(true)}
-                >
-                  <Text style={styles.stepActionBtnText}>Enter Start Ride OTP 🔑</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Step 3: In-Transit to Destination (Arrived & PoD) */}
-            {(tripStep === 'in_transit' || tripStep === 'arrived_dest') && (
-              <View style={styles.stepBox}>
-                <Text style={styles.stepHeading}>Step 3: Goods at Destination 🚚</Text>
-                <Text style={styles.stepAddress}>🎯 Destination: {activeTrip.dropAddress}</Text>
-
-                <View style={{ marginTop: 16 }}>
-                  {!photoUri && !showCamera && (
-                    <>
-                      <Text style={styles.stepSubtitle}>Capture digital proof of delivery (photo of goods) to proceed.</Text>
-                      <TouchableOpacity
-                        style={[styles.stepActionBtn, { backgroundColor: '#3b82f6', marginBottom: 12 }]}
-                        onPress={() => {
-                          if (!permission?.granted) requestPermission();
-                          setShowCamera(true);
-                        }}
-                      >
-                        <Text style={styles.stepActionBtnText}>📸 Capture PoD Photo</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-
-                  {showCamera && permission?.granted && (
-                    <View style={{ height: 300, width: '100%', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
-                      <CameraView style={{ flex: 1 }} facing="back" ref={(ref) => setCameraRef(ref)}>
-                        <View style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 20 }}>
-                          <TouchableOpacity
-                            style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff', borderWidth: 4, borderColor: '#e86331' }}
-                            onPress={handleTakePicture}
-                          />
-                        </View>
-                      </CameraView>
-                    </View>
-                  )}
-
-                  {photoUri && (
-                    <View style={{ marginBottom: 12, padding: 12, backgroundColor: '#1e293b', borderRadius: 8 }}>
-                      <Text style={{ color: '#10b981', fontWeight: 'bold', marginBottom: 4 }}>✅ Photo Captured Successfully</Text>
-                      <TouchableOpacity onPress={() => setShowCamera(true)}>
-                        <Text style={{ color: '#3b82f6', fontSize: 12 }}>Retake Photo</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+        {/* TAB 1: ASSIGNED WORK / DELIVERIES & QUEUE */}
+        {activeTab === 'assigned' && (
+          <View>
+            {/* TC-021: Incoming Booking Request Alert */}
+            {isOnline && incomingTrip && !activeTrip && (
+              <View style={styles.incomingCard}>
+                <View style={styles.incomingHeader}>
+                  <View style={styles.pulsingDot} />
+                  <Text style={styles.incomingTitle}>NEW BOOKING REQUEST</Text>
+                  <Text style={styles.incomingFare}>₹{incomingTrip.fare}</Text>
                 </View>
 
-                {queuedTrips.length > 0 && (
-                  <View style={styles.nextStopPreview}>
-                    <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
-                    <Text style={styles.nextStopRoute} numberOfLines={1}>
-                      🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
-                    </Text>
-                    <Text style={styles.nextStopFare}>
-                      Payout: ₹{queuedTrips[0].estimatedFare || 0} • {queuedTrips.length > 1 ? `+${queuedTrips.length - 1} more queued` : 'Final stop in queue'}
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={[styles.stepActionBtn, { backgroundColor: photoUri ? '#22c55e' : '#475569' }]}
-                  onPress={handleCompleteDelivery}
-                  disabled={loading || !photoUri}
-                >
-                  <Text style={styles.stepActionBtnText}>Mark Delivered & Collect ₹{activeTrip.fare} ✅</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Step 4: Completed with Blockchain PoD */}
-            {tripStep === 'completed' && (
-              <View style={styles.stepBox}>
-                <Text style={styles.successHeading}>🎉 Delivery Completed Successfully!</Text>
-                <Text style={styles.podText}>
-                  Blockchain PoD Hash: {podHash ? podHash.slice(0, 24) + '...' : 'Verified'}
-                </Text>
-                <TouchableOpacity
-                  style={styles.stepActionBtn}
-                  onPress={handleDismissCompletedTrip}
-                >
-                  <Text style={styles.stepActionBtnText}>Back to Duty Queue</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Multi-Delivery Queue Stack */}
-        {queuedTrips.length > 0 && (
-          <View style={styles.queueContainer}>
-            <View style={styles.queueHeaderRow}>
-              <View>
-                <Text style={styles.queueHeaderTitle}>Assigned Delivery Queue</Text>
-                <Text style={styles.queueHeaderSubtitle}>
-                  Auto-promotes when current stop finishes
-                </Text>
-              </View>
-              <View style={styles.queueCountBadge}>
-                <Text style={styles.queueCountText}>{queuedTrips.length} Up Next</Text>
-              </View>
-            </View>
-
-            {queuedTrips.map((queued: any, idx: number) => (
-              <View key={queued.id} style={styles.queueCard}>
-                <View style={styles.queueCardHeader}>
-                  <View style={styles.queueStopBadge}>
-                    <Text style={styles.queueStopBadgeText}>
-                      Stop #{idx + 2} {idx === 0 ? '(Up Next)' : 'in Queue'}
-                    </Text>
-                  </View>
-                  <Text style={styles.queueId}>#{queued.id.slice(0, 8)}</Text>
-                  {queued.tempoType && (
-                    <Text style={styles.queueTempo}>{queued.tempoType}</Text>
-                  )}
-                </View>
-
-                <View style={styles.queueAddressBlock}>
-                  <View style={styles.queueAddressRow}>
-                    <Text style={styles.dotGreen}>●</Text>
-                    <Text style={styles.queueAddressText} numberOfLines={1}>
-                      {queued.pickupAddress}
-                    </Text>
-                  </View>
-                  <View style={styles.queueAddressRow}>
-                    <Text style={styles.dotOrange}>▼</Text>
-                    <Text style={[styles.queueAddressText, { color: '#f08b65' }]} numberOfLines={1}>
-                      {queued.dropAddress || 'Scheduled Delivery Point'}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.queueMetaRow}>
-                  <Text style={styles.queueMetaText}>
-                    {queued.customer?.name || 'Commercial Client'} • {queued.cargoType || queued.goodsType || 'Freight'}
+                <View style={styles.incomingBody}>
+                  <Text style={styles.incomingRoute}>
+                    📍 {incomingTrip.pickupAddress}
                   </Text>
-                  <Text style={styles.queueFare}>₹{Number(queued.estimatedFare || 0).toLocaleString()}</Text>
+                  <Text style={[styles.incomingRoute, { marginTop: 4 }]}>
+                    🎯 {incomingTrip.dropAddress}
+                  </Text>
+                  <View style={styles.incomingMetaRow}>
+                    <Text style={styles.incomingMeta}>{incomingTrip.tempoType}</Text>
+                    <Text style={styles.incomingMeta}>•</Text>
+                    <Text style={styles.incomingMeta}>{incomingTrip.weight}</Text>
+                    <Text style={styles.incomingMeta}>•</Text>
+                    <Text style={styles.incomingMeta}>{incomingTrip.goodsType}</Text>
+                  </View>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.makeActiveBtn}
-                  onPress={() => handleActivateQueuedTrip(queued.id)}
-                  disabled={activatingBookingId === queued.id}
-                >
-                  {activatingBookingId === queued.id ? (
-                    <ActivityIndicator size="small" color="#fb923c" />
-                  ) : (
-                    <Text style={styles.makeActiveBtnText}>Make Active Stop Now ⚡</Text>
-                  )}
-                </TouchableOpacity>
+                <View style={styles.incomingActions}>
+                  <TouchableOpacity style={styles.declineBtn} onPress={handleDeclineTrip}>
+                    <Text style={styles.declineBtnText}>Decline</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.acceptBtn}
+                    onPress={handleAcceptTrip}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.acceptBtnText}>ACCEPT TRIP (₹{incomingTrip.fare})</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-            ))}
+            )}
+
+            {/* TC-022 & TC-KRI-003: Active Appointed Trip & Lifecycle */}
+            {activeTrip ? (
+              <View style={styles.appointedCard}>
+                {/* Header matching Web */}
+                <View style={styles.appointedHeaderRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <View style={styles.pulsingGreenDot} />
+                    <Text style={styles.appointedHeadingText}>Appointed Work Order</Text>
+                  </View>
+                  <View style={styles.adminDispatchedBadge}>
+                    <Text style={styles.adminDispatchedBadgeText}>🛡️ Dispatched by Admin</Text>
+                  </View>
+                </View>
+
+                {/* Guaranteed Trip Compensation Header */}
+                <View style={styles.compensationHeader}>
+                  <View>
+                    <Text style={styles.compensationSubLabel}>Guaranteed Trip Compensation</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+                      <Text style={styles.compensationAmount}>
+                        ₹{Number(activeTrip.fare).toLocaleString('en-IN')}
+                      </Text>
+                      <View style={styles.settlementPill}>
+                        <Text style={styles.settlementPillText}>Direct Fleet Settlement</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.refIdBox}>
+                    <Text style={styles.refIdLabel}>Order Ref</Text>
+                    <Text style={styles.refIdText}>#{String(activeTrip.bookingId).slice(0, 8)}</Text>
+                  </View>
+                </View>
+
+                {/* Route Waypoints (Matching Web Design) */}
+                <View style={styles.routeContainer}>
+                  <View style={styles.routeLine} />
+
+                  {/* Pickup */}
+                  <View style={styles.waypointRow}>
+                    <View style={[styles.waypointMarker, { backgroundColor: '#22c55e' }]} />
+                    <View style={{ flex: 1, paddingLeft: 12 }}>
+                      <Text style={styles.waypointTagGreen}>PICKUP LOCATION</Text>
+                      <Text style={styles.waypointAddress}>{activeTrip.pickupAddress}</Text>
+                      {activeTrip.customerName && (
+                        <Text style={styles.consignorText}>
+                          Consignor: <Text style={{ color: '#e2e8f0', fontWeight: '600' }}>{activeTrip.customerName}</Text>
+                          {activeTrip.customerPhone ? ` • ${activeTrip.customerPhone}` : ''}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Destination */}
+                  <View style={[styles.waypointRow, { marginTop: 16 }]}>
+                    <View style={[styles.waypointMarker, { backgroundColor: '#e86331' }]} />
+                    <View style={{ flex: 1, paddingLeft: 12 }}>
+                      <Text style={styles.waypointTagOrange}>DESTINATION / DROP-OFF</Text>
+                      <Text style={styles.waypointAddress}>{activeTrip.dropAddress}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Cargo & Payload Meta Grid */}
+                <View style={styles.cargoGrid}>
+                  <View style={styles.cargoCell}>
+                    <Text style={styles.cargoCellLabel}>Consignment Cargo</Text>
+                    <Text style={styles.cargoCellValue}>{activeTrip.goodsType || 'Commercial Freight'}</Text>
+                  </View>
+                  <View style={styles.cargoCell}>
+                    <Text style={styles.cargoCellLabel}>Vehicle & Payload</Text>
+                    <Text style={styles.cargoCellValue}>
+                      {activeTrip.tempoType || 'Tempo'} ({activeTrip.weight || 'Standard Payload'})
+                    </Text>
+                  </View>
+                </View>
+
+                {/* TC-KRI-003: Device Wake Lock Management Badge */}
+                <View style={[styles.wakeLockBadge, isWakeLockActive ? styles.wakeLockActive : styles.wakeLockInactive]}>
+                  <Text style={styles.wakeLockBadgeText}>
+                    {isWakeLockActive 
+                      ? '⚡ Screen Kept Awake for Active Transit (Wake Lock Active)' 
+                      : '💤 Wake Lock Standby'}
+                  </Text>
+                </View>
+
+                {/* Step 1: Heading to Pickup */}
+                {tripStep === 'assigned' && (
+                  <View style={styles.stepBox}>
+                    <Text style={styles.stepHeading}>Step 1: Proceed to Pickup Point</Text>
+                    <Text style={styles.stepSub}>
+                      Navigate to the loading dock and notify warehouse staff upon arrival.
+                    </Text>
+
+                    {queuedTrips.length > 0 && (
+                      <View style={styles.nextStopPreview}>
+                        <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
+                        <Text style={styles.nextStopRoute} numberOfLines={1}>
+                          🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
+                        </Text>
+                        <Text style={styles.nextStopFare}>
+                          Trip Compensation: ₹{queuedTrips[0].estimatedFare || 0} (Direct Settlement)
+                        </Text>
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      style={styles.stepActionBtn}
+                      onPress={handleDriverArrived}
+                      disabled={loading}
+                    >
+                      <Text style={styles.stepActionBtnText}>I Have Arrived at Pickup 📍</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Step 2: Arrived, Load Cargo & Verify OTP */}
+                {tripStep === 'arrived' && (
+                  <View style={styles.stepBox}>
+                    <Text style={styles.stepHeading}>Step 2: Loading & Customer Verification</Text>
+                    <Text style={styles.stepSub}>
+                      Inspect goods ({activeTrip.goodsType}, {activeTrip.weight}) and ask customer for the 4-digit Start OTP.
+                    </Text>
+
+                    {queuedTrips.length > 0 && (
+                      <View style={styles.nextStopPreview}>
+                        <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
+                        <Text style={styles.nextStopRoute} numberOfLines={1}>
+                          🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
+                        </Text>
+                        <Text style={styles.nextStopFare}>
+                          Trip Compensation: ₹{queuedTrips[0].estimatedFare || 0} (Direct Settlement)
+                        </Text>
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.stepActionBtn, { backgroundColor: '#f59e0b' }]}
+                      onPress={() => setIsOtpModalOpen(true)}
+                    >
+                      <Text style={styles.stepActionBtnText}>Enter Start Ride OTP 🔑</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Step 3: In-Transit to Destination (Arrived & PoD) */}
+                {(tripStep === 'in_transit' || tripStep === 'arrived_dest') && (
+                  <View style={styles.stepBox}>
+                    <Text style={styles.stepHeading}>Step 3: Goods at Destination 🚚</Text>
+                    <Text style={styles.stepAddress}>🎯 Destination: {activeTrip.dropAddress}</Text>
+
+                    <View style={{ marginTop: 12 }}>
+                      {!photoUri && !showCamera && (
+                        <>
+                          <Text style={styles.stepSub}>Capture digital proof of delivery (photo of goods) to proceed.</Text>
+                          <TouchableOpacity
+                            style={[styles.stepActionBtn, { backgroundColor: '#3b82f6', marginBottom: 12 }]}
+                            onPress={() => {
+                              if (!permission?.granted) requestPermission();
+                              setShowCamera(true);
+                            }}
+                          >
+                            <Text style={styles.stepActionBtnText}>📸 Capture PoD Photo</Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
+
+                      {showCamera && permission?.granted && (
+                        <View style={{ height: 280, width: '100%', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+                          <CameraView style={{ flex: 1 }} facing="back" ref={(ref) => setCameraRef(ref)}>
+                            <View style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 20 }}>
+                              <TouchableOpacity
+                                style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff', borderWidth: 4, borderColor: '#e86331' }}
+                                onPress={handleTakePicture}
+                              />
+                            </View>
+                          </CameraView>
+                        </View>
+                      )}
+
+                      {photoUri && (
+                        <View style={{ marginBottom: 12, padding: 12, backgroundColor: '#1e293b', borderRadius: 8 }}>
+                          <Text style={{ color: '#10b981', fontWeight: 'bold', marginBottom: 4 }}>✅ Delivery Photo Captured</Text>
+                          <TouchableOpacity onPress={() => setShowCamera(true)}>
+                            <Text style={{ color: '#3b82f6', fontSize: 12 }}>Retake Photo</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+
+                    {queuedTrips.length > 0 && (
+                      <View style={styles.nextStopPreview}>
+                        <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
+                        <Text style={styles.nextStopRoute} numberOfLines={1}>
+                          🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
+                        </Text>
+                        <Text style={styles.nextStopFare}>
+                          Trip Compensation: ₹{queuedTrips[0].estimatedFare || 0} (Direct Settlement)
+                        </Text>
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.stepActionBtn, { backgroundColor: photoUri ? '#22c55e' : '#475569' }]}
+                      onPress={handleCompleteDelivery}
+                      disabled={loading || !photoUri}
+                    >
+                      <Text style={styles.stepActionBtnText}>Mark Delivered & Sign PoD ✅</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Step 4: Completed with Blockchain PoD */}
+                {tripStep === 'completed' && (
+                  <View style={styles.stepBox}>
+                    <Text style={styles.successHeading}>🎉 Delivery Completed Successfully!</Text>
+                    <Text style={styles.podText}>
+                      Blockchain PoD Hash: {podHash ? podHash.slice(0, 24) + '...' : 'Verified'}
+                    </Text>
+                    <View style={styles.directSettlementCompletedNotice}>
+                      <Text style={styles.directSettlementCompletedText}>
+                        💰 ₹{activeTrip.fare} guaranteed compensation recorded for direct fleet settlement.
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.stepActionBtn}
+                      onPress={handleDismissCompletedTrip}
+                    >
+                      <Text style={styles.stepActionBtnText}>Back to Duty Queue</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ) : !incomingTrip ? (
+              /* STANDBY SCREEN WHEN NO ACTIVE TRIP (Matching Web Driver Portal Lines 570-638) */
+              <View style={styles.standbyCard}>
+                <View style={styles.standbyIconBox}>
+                  <Text style={styles.standbyIcon}>🚚</Text>
+                  <View style={[styles.standbyDot, isOnline ? styles.standbyDotGreen : styles.standbyDotGrey]} />
+                </View>
+
+                <View style={styles.standbyPill}>
+                  <Text style={styles.standbyPillText}>
+                    {isOnline ? '🟢 Fleet Standby • Available for Work' : '⚪ Duty Paused • Offline'}
+                  </Text>
+                </View>
+
+                <Text style={styles.standbyTitle}>Awaiting Appointed Work</Text>
+                <Text style={styles.standbyDesc}>
+                  Fleet administrators appoint bookings directly to your vehicle based on capacity and scheduled routes. As soon as dispatch assigns a delivery, your work order and live route will appear here.
+                </Text>
+
+                <View style={styles.standbyActionsRow}>
+                  <TouchableOpacity
+                    style={styles.standbyRefreshBtn}
+                    onPress={fetchDriverData}
+                  >
+                    <Text style={styles.standbyRefreshBtnText}>🔄 Check Appointed Work</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.standbySimBtn}
+                    onPress={startDemoSimulation}
+                  >
+                    <Text style={styles.standbySimBtnText}>▶️ Launch Tempo Moving Simulation</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Standby Readiness Status Badges */}
+                <View style={styles.standbyStatsGrid}>
+                  <View style={styles.standbyStatCard}>
+                    <Text style={styles.standbyStatLabel}>Shift Duty</Text>
+                    <Text style={[styles.standbyStatVal, { color: isOnline ? '#4ade80' : '#a2b2c7' }]}>
+                      {isOnline ? 'Active & Ready' : 'Shift Inactive'}
+                    </Text>
+                  </View>
+                  <View style={styles.standbyStatCard}>
+                    <Text style={styles.standbyStatLabel}>Appointed Queue</Text>
+                    <Text style={[styles.standbyStatVal, { color: '#38bdf8' }]}>
+                      {driverMetrics.activeOrdersCount || 0} Orders in Queue
+                    </Text>
+                  </View>
+                  <View style={styles.standbyStatCard}>
+                    <Text style={styles.standbyStatLabel}>Deliveries Today</Text>
+                    <Text style={[styles.standbyStatVal, { color: '#f4f6f8' }]}>
+                      {driverMetrics.completedOrders || 0} Completed
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Fleet Admin Direct Settlement Notice */}
+                <View style={styles.settlementNoticeBox}>
+                  <Text style={styles.settlementNoticeTitle}>🛡️ Direct Fleet Settlement</Text>
+                  <Text style={styles.settlementNoticeDesc}>
+                    Driver compensation is disbursed directly by the fleet administrator/owner offline. In-portal payout requests are not required.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            {/* Multi-Delivery Queue Stack */}
+            {queuedTrips.length > 0 && (
+              <View style={styles.queueContainer}>
+                <View style={styles.queueHeaderRow}>
+                  <View>
+                    <Text style={styles.queueHeaderTitle}>Assigned Delivery Queue</Text>
+                    <Text style={styles.queueHeaderSubtitle}>
+                      Auto-promotes when current stop finishes
+                    </Text>
+                  </View>
+                  <View style={styles.queueCountBadge}>
+                    <Text style={styles.queueCountText}>{queuedTrips.length} Up Next</Text>
+                  </View>
+                </View>
+
+                {queuedTrips.map((queued: any, idx: number) => (
+                  <View key={queued.id} style={styles.queueCard}>
+                    <View style={styles.queueCardHeader}>
+                      <View style={styles.queueStopBadge}>
+                        <Text style={styles.queueStopBadgeText}>
+                          Stop #{idx + 2} {idx === 0 ? '(Up Next)' : 'in Queue'}
+                        </Text>
+                      </View>
+                      <Text style={styles.queueId}>#{queued.id.slice(0, 8)}</Text>
+                      {queued.tempoType && (
+                        <Text style={styles.queueTempo}>{queued.tempoType}</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.queueAddressBlock}>
+                      <View style={styles.queueAddressRow}>
+                        <Text style={styles.dotGreen}>●</Text>
+                        <Text style={styles.queueAddressText} numberOfLines={1}>
+                          {queued.pickupAddress}
+                        </Text>
+                      </View>
+                      <View style={styles.queueAddressRow}>
+                        <Text style={styles.dotOrange}>▼</Text>
+                        <Text style={[styles.queueAddressText, { color: '#f08b65' }]} numberOfLines={1}>
+                          {queued.dropAddress || 'Scheduled Delivery Point'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.queueMetaRow}>
+                      <Text style={styles.queueMetaText}>
+                        {queued.customer?.name || 'Commercial Client'} • {queued.cargoType || queued.goodsType || 'Freight'}
+                      </Text>
+                      <Text style={styles.queueFare}>₹{Number(queued.estimatedFare || 0).toLocaleString()} (Direct)</Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.makeActiveBtn}
+                      onPress={() => handleActivateQueuedTrip(queued.id)}
+                      disabled={activatingBookingId === queued.id}
+                    >
+                      {activatingBookingId === queued.id ? (
+                        <ActivityIndicator size="small" color="#fb923c" />
+                      ) : (
+                        <Text style={styles.makeActiveBtnText}>Make Active Stop Now ⚡</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
-        {/* Quick Tools Row (TC-023: WMS Scanner, Heatmap) */}
-        <Text style={styles.sectionTitle}>Driver Tools</Text>
-        <View style={styles.toolsRow}>
-          <TouchableOpacity
-            style={styles.toolCard}
-            onPress={() => router.push('/(driver)/scanner' as any)}
-          >
-            <Text style={styles.toolIcon}>📦</Text>
-            <Text style={styles.toolTitle}>WMS Scanner</Text>
-            <Text style={styles.toolSubtitle}>Scan Barcodes</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.toolCard}
-            onPress={() => router.push('/(driver)/heatmap' as any)}
-          >
-            <Text style={styles.toolIcon}>🔥</Text>
-            <Text style={styles.toolTitle}>Demand Heatmap</Text>
-            <Text style={styles.toolSubtitle}>Surge Areas</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* TC-024: Driver Earnings & Payslip Summary */}
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Weekly Payout & Payslip</Text>
-        <View style={styles.earningsCard}>
-          <Text style={styles.earningsTitle}>Weekly Gross Earnings</Text>
-          <Text style={styles.earningsAmount}>₹{payslip?.grossEarnings ?? 0}.00</Text>
-
-          <View style={styles.breakdownRow}>
-            <Text style={styles.breakdownLabel}>Platform Fee (15%)</Text>
-            <Text style={styles.breakdownVal}>-₹{payslip?.platformFee ?? 0}</Text>
-          </View>
-
-          <View style={styles.breakdownRow}>
-            <Text style={styles.breakdownLabel}>TDS Tax Deduction (1%)</Text>
-            <Text style={styles.breakdownVal}>-₹{payslip?.tdsTax ?? 0}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.netRow}>
-            <Text style={styles.netLabel}>Estimated Net Payout</Text>
-            <Text style={styles.netAmount}>₹{payslip?.netPayout ?? 0}.00</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.payoutBtn}
-            onPress={() => Alert.alert('Payout Requested', 'Net payout of ₹1,554 initiated to your linked bank account.')}
-          >
-            <Text style={styles.payoutBtnText}>⚡ Request Instant Payout</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* TC-KRI-004: QA Hardware & IoT Telemetry Simulator Panel (Gated to development/QA builds) */}
-        {__DEV__ && (
-          <View style={styles.simPanel}>
-            <Text style={styles.simPanelTitle}>🧪 QA SENSOR & TELEMETRY SIMULATION</Text>
-            <Text style={styles.simPanelDesc}>Inject mock telemetry packets into WebSocket / device drivers</Text>
-            <View style={styles.simBtnRow}>
-              <TouchableOpacity 
-                style={[styles.simBtn, { backgroundColor: '#ef4444' }]} 
-                onPress={() => {
-                  handleThermalDegradation(110);
-                  if (socketRef.current?.connected) {
-                    socketRef.current.emit('qa:inject_telemetry', { vehicleId: 'VEH-1234', temperature: 110 });
-                  }
-                }}
+        {/* TAB 2: DRIVER TOOLS */}
+        {activeTab === 'tools' && (
+          <View style={{ marginTop: 4 }}>
+            <Text style={styles.sectionTitle}>Driver Tools & Operations</Text>
+            <View style={styles.toolsRow}>
+              <TouchableOpacity
+                style={styles.toolCard}
+                onPress={() => router.push('/(driver)/scanner' as any)}
               >
-                <Text style={styles.simBtnText}>🔥 Inject Telemetry (110°C Overheat)</Text>
+                <Text style={styles.toolIcon}>📦</Text>
+                <Text style={styles.toolTitle}>WMS Scanner</Text>
+                <Text style={styles.toolSubtitle}>Scan Barcodes & Packages</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.simBtn, { backgroundColor: '#10b981' }]} 
-                onPress={() => {
-                  handleThermalDegradation(85);
-                  if (socketRef.current?.connected) {
-                    socketRef.current.emit('qa:inject_telemetry', { vehicleId: 'VEH-1234', temperature: 85 });
-                  }
-                }}
+
+              <TouchableOpacity
+                style={styles.toolCard}
+                onPress={() => router.push('/(driver)/heatmap' as any)}
               >
-                <Text style={styles.simBtnText}>💧 Normal Temp (85°C)</Text>
+                <Text style={styles.toolIcon}>🔥</Text>
+                <Text style={styles.toolTitle}>Demand Heatmap</Text>
+                <Text style={styles.toolSubtitle}>High-Surge Dispatch Zones</Text>
               </TouchableOpacity>
             </View>
+
+            {/* QA Sensor & Telemetry Simulator Panel */}
+            {__DEV__ && (
+              <View style={styles.simPanel}>
+                <Text style={styles.simPanelTitle}>🧪 QA SENSOR & TELEMETRY SIMULATION</Text>
+                <Text style={styles.simPanelDesc}>Inject mock telemetry packets into WebSocket / device drivers</Text>
+                <View style={styles.simBtnRow}>
+                  <TouchableOpacity 
+                    style={[styles.simBtn, { backgroundColor: '#ef4444' }]} 
+                    onPress={() => {
+                      handleThermalDegradation(110);
+                      if (socketRef.current?.connected) {
+                        socketRef.current.emit('qa:inject_telemetry', { vehicleId: 'VEH-1234', temperature: 110 });
+                      }
+                    }}
+                  >
+                    <Text style={styles.simBtnText}>🔥 Inject Telemetry (110°C Overheat)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.simBtn, { backgroundColor: '#10b981' }]} 
+                    onPress={() => {
+                      handleThermalDegradation(85);
+                      if (socketRef.current?.connected) {
+                        socketRef.current.emit('qa:inject_telemetry', { vehicleId: 'VEH-1234', temperature: 85 });
+                      }
+                    }}
+                  >
+                    <Text style={styles.simBtnText}>💧 Normal Temp (85°C)</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* TAB 3: COMPLETED TRIP HISTORY */}
+        {activeTab === 'history' && (
+          <View style={{ marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={styles.sectionTitle}>Completed Delivery History</Text>
+              <Text style={{ color: '#a2b2c7', fontSize: 12 }}>
+                Total: {driverMetrics.completedOrders || 0} Delivered
+              </Text>
+            </View>
+
+            {(!driverMetrics.completedBookings || driverMetrics.completedBookings.length === 0) ? (
+              <View style={styles.emptyHistoryCard}>
+                <Text style={{ fontSize: 32, marginBottom: 8 }}>📋</Text>
+                <Text style={styles.emptyHistoryTitle}>No Completed Trips Yet</Text>
+                <Text style={styles.emptyHistoryDesc}>
+                  Your finished deliveries with cryptographic proof of delivery and fleet compensation will be logged here.
+                </Text>
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {driverMetrics.completedBookings.map((b: any) => (
+                  <View key={b.id} style={styles.historyCard}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <View style={styles.historyStatusPill}>
+                        <Text style={styles.historyStatusPillText}>Delivered</Text>
+                      </View>
+                      <Text style={styles.historyFare}>+₹{b.estimatedFare} (Settled)</Text>
+                    </View>
+
+                    <Text style={styles.historyRouteText} numberOfLines={1}>
+                      {b.pickupAddress} → {b.dropAddress || 'Multi-stop drop'}
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                      <Text style={styles.historyMetaText}>
+                        {b.tempoType || 'Tempo'} • {b.goodsType || 'Freight'}
+                      </Text>
+                      <Text style={styles.historyDateText}>
+                        {b.updatedAt ? new Date(b.updatedAt).toLocaleDateString() : 'Recent'}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
 
-      {/* TC-KRI-004: High-Priority Thermal Degradation Alert Modal Overlay */}
+      {/* High-Priority Thermal Warning Modal */}
       <Modal
         visible={!!thermalAlert?.active}
         transparent={true}
@@ -867,7 +1080,6 @@ export default function DriverDashboard() {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -888,11 +1100,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#2f3a4e',
   },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   pilotBadge: {
     color: '#e86331',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: 1,
+  },
+  fleetPartnerPill: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  fleetPartnerPillText: {
+    color: '#22c55e',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   userName: {
     color: '#f4f6f8',
@@ -927,7 +1158,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderRadius: 16,
-    padding: 18,
+    padding: 16,
     borderWidth: 1,
     marginBottom: 16,
   },
@@ -951,37 +1182,77 @@ const styles = StyleSheet.create({
   },
   metricsRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     marginBottom: 16,
   },
   metricCard: {
     flex: 1,
     backgroundColor: '#293243',
-    padding: 14,
+    padding: 12,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#2f3a4e',
   },
   metricCardPrimary: {
     backgroundColor: 'rgba(232, 99, 49, 0.1)',
-    borderColor: 'rgba(232, 99, 49, 0.3)',
+    borderColor: 'rgba(232, 99, 49, 0.35)',
   },
   metricLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     color: '#a2b2c7',
     letterSpacing: 0.5,
   },
   metricValue: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '800',
     color: '#f4f6f8',
-    marginTop: 6,
+    marginTop: 4,
     marginBottom: 2,
   },
   metricSub: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#748bac',
+  },
+  tabSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#1b2230',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 4,
+  },
+  tabBtnActive: {
+    backgroundColor: '#e86331',
+  },
+  tabBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#a2b2c7',
+  },
+  tabBtnTextActive: {
+    color: '#ffffff',
+  },
+  tabBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 10,
+  },
+  tabBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
   },
   incomingCard: {
     backgroundColor: '#293243',
@@ -1063,415 +1334,384 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 14,
   },
-  activeTripCard: {
-    backgroundColor: '#293243',
-    borderRadius: 16,
+  // APPOINTED WORK ORDER CARD (Matching Web)
+  appointedCard: {
+    backgroundColor: '#1b2230',
+    borderRadius: 18,
     padding: 18,
     borderWidth: 2,
     borderColor: '#e86331',
     marginBottom: 16,
+    shadowColor: '#e86331',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  activeTripHeader: {
-    marginBottom: 12,
+  appointedHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  activeTripTitle: {
-    color: '#38bdf8',
+  pulsingGreenDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#22c55e',
+  },
+  appointedHeadingText: {
+    color: '#f4f6f8',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  adminDispatchedBadge: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  adminDispatchedBadgeText: {
+    color: '#4ade80',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  compensationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    backgroundColor: '#0f141f',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    marginBottom: 14,
+  },
+  compensationSubLabel: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  compensationAmount: {
+    color: '#f4f6f8',
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  settlementPill: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  settlementPillText: {
+    color: '#4ade80',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  refIdBox: {
+    alignItems: 'flex-end',
+  },
+  refIdLabel: {
+    color: '#748bac',
+    fontSize: 10,
+    textTransform: 'uppercase',
+  },
+  refIdText: {
+    color: '#e2e8f0',
+    fontSize: 13,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginTop: 2,
+  },
+  routeContainer: {
+    backgroundColor: '#0f141f',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    marginBottom: 14,
+    position: 'relative',
+  },
+  routeLine: {
+    position: 'absolute',
+    left: 19,
+    top: 24,
+    bottom: 24,
+    width: 2,
+    backgroundColor: '#2f3a4e',
+  },
+  waypointRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  waypointMarker: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginTop: 3,
+  },
+  waypointTagGreen: {
+    color: '#4ade80',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  waypointTagOrange: {
+    color: '#fb923c',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  waypointAddress: {
+    color: '#f4f6f8',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  consignorText: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    marginTop: 3,
+  },
+  cargoGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  cargoCell: {
+    flex: 1,
+    backgroundColor: '#0f141f',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+  },
+  cargoCellLabel: {
+    color: '#748bac',
+    fontSize: 10,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+  },
+  cargoCellValue: {
+    color: '#fb923c',
     fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 1,
-  },
-  activeTripRef: {
-    color: '#f4f6f8',
-    fontSize: 18,
-    fontWeight: '800',
     marginTop: 2,
   },
   stepBox: {
     backgroundColor: '#0f141f',
     borderRadius: 12,
     padding: 14,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
   },
   stepHeading: {
     color: '#f4f6f8',
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  stepSub: {
+    color: '#a2b2c7',
+    fontSize: 12,
+    marginVertical: 8,
   },
   stepAddress: {
     color: '#c9d3df',
     fontSize: 13,
     marginTop: 4,
-    marginBottom: 12,
-  },
-  stepSubtitle: {
-    color: '#a2b2c7',
-    fontSize: 12,
-    marginVertical: 8,
+    marginBottom: 10,
   },
   stepActionBtn: {
     backgroundColor: '#e86331',
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: 13,
     alignItems: 'center',
+    marginTop: 8,
   },
   stepActionBtnText: {
     color: '#f4f6f8',
-    fontWeight: '700',
+    fontWeight: '800',
     fontSize: 14,
   },
   successHeading: {
     color: '#4ade80',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
     textAlign: 'center',
   },
   podText: {
     color: '#a2b2c7',
     fontSize: 11,
     textAlign: 'center',
-    marginVertical: 10,
+    marginVertical: 8,
   },
-  sectionTitle: {
-    color: '#f4f6f8',
-    fontSize: 16,
+  directSettlementCompletedNotice: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  directSettlementCompletedText: {
+    color: '#86efac',
+    fontSize: 12,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  // STANDBY CARD (Matching Web)
+  standbyCard: {
+    backgroundColor: '#1b2230',
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    alignItems: 'center',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  standbyIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    backgroundColor: '#0f141f',
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    position: 'relative',
+  },
+  standbyIcon: {
+    fontSize: 30,
+  },
+  standbyDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#1b2230',
+  },
+  standbyDotGreen: {
+    backgroundColor: '#22c55e',
+  },
+  standbyDotGrey: {
+    backgroundColor: '#64748b',
+  },
+  standbyPill: {
+    backgroundColor: '#0f141f',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
     marginBottom: 12,
   },
-  toolsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  toolCard: {
-    flex: 1,
-    backgroundColor: '#293243',
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2f3a4e',
-  },
-  toolIcon: {
-    fontSize: 26,
-    marginBottom: 6,
-  },
-  toolTitle: {
-    color: '#f4f6f8',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  toolSubtitle: {
-    color: '#a2b2c7',
+  standbyPillText: {
+    color: '#cbd5e1',
     fontSize: 11,
-    marginTop: 2,
-  },
-  earningsCard: {
-    backgroundColor: '#293243',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#2f3a4e',
-  },
-  earningsTitle: {
-    color: '#a2b2c7',
-    fontSize: 12,
-  },
-  earningsAmount: {
-    color: '#f4f6f8',
-    fontSize: 30,
-    fontWeight: '800',
-    marginVertical: 6,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  breakdownLabel: {
-    color: '#a2b2c7',
-    fontSize: 12,
-  },
-  breakdownVal: {
-    color: '#f87171',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#2f3a4e',
-    marginVertical: 12,
-  },
-  netRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  netLabel: {
-    color: '#f4f6f8',
-    fontSize: 14,
     fontWeight: '700',
   },
-  netAmount: {
-    color: '#22c55e',
+  standbyTitle: {
+    color: '#f4f6f8',
     fontSize: 20,
     fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
   },
-  payoutBtn: {
-    backgroundColor: '#22c55e',
+  standbyDesc: {
+    color: '#a2b2c7',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  standbyActionsRow: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 18,
+  },
+  standbyRefreshBtn: {
+    backgroundColor: '#e86331',
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  payoutBtnText: {
-    color: '#f4f6f8',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: '#293243',
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#2f3a4e',
-  },
-  modalTitle: {
-    color: '#f4f6f8',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  modalSubtitle: {
-    color: '#a2b2c7',
+  standbyRefreshBtnText: {
+    color: '#ffffff',
     fontSize: 13,
-    marginTop: 4,
-    marginBottom: 20,
-  },
-  otpInput: {
-    backgroundColor: '#0f141f',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2f3a4e',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    color: '#f4f6f8',
-    fontSize: 24,
     fontWeight: '800',
-    letterSpacing: 10,
-    textAlign: 'center',
-    marginBottom: 20,
   },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
+  standbySimBtn: {
+    backgroundColor: 'rgba(232, 99, 49, 0.12)',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232, 99, 49, 0.4)',
   },
-  modalCancelBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  modalCancelText: {
-    color: '#a2b2c7',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalVerifyBtn: {
-    backgroundColor: '#22c55e',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  modalVerifyText: {
-    color: '#f4f6f8',
-    fontSize: 14,
+  standbySimBtnText: {
+    color: '#fb923c',
+    fontSize: 12,
     fontWeight: '700',
   },
-  // TC-KRI-003: Device Wake Lock Styles
-  wakeLockBadge: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+  standbyStatsGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    width: '100%',
+    borderTopWidth: 1,
+    borderTopColor: '#2f3a4e',
+    paddingTop: 14,
     marginBottom: 14,
-    alignSelf: 'flex-start',
   },
-  wakeLockActive: {
-    backgroundColor: 'rgba(232, 99, 49, 0.15)',
-    borderColor: '#e86331',
-  },
-  wakeLockInactive: {
-    backgroundColor: 'rgba(162, 178, 199, 0.1)',
-    borderColor: '#2f3a4e',
-  },
-  wakeLockBadgeText: {
-    color: '#f4f6f8',
-    fontSize: 11,
-    fontWeight: '600',
-    fontFamily: 'System',
-  },
-  // TC-KRI-004: QA Telemetry Simulation Panel Styles
-  simPanel: {
-    marginTop: 20,
-    backgroundColor: '#1b2230',
-    borderRadius: 14,
-    padding: 16,
+  standbyStatCard: {
+    flex: 1,
+    backgroundColor: '#0f141f',
+    borderRadius: 10,
+    padding: 10,
     borderWidth: 1,
     borderColor: '#2f3a4e',
   },
-  simPanelTitle: {
-    color: '#e86331',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  simPanelDesc: {
-    color: '#a2b2c7',
-    fontSize: 12,
-    marginBottom: 12,
-  },
-  simBtnRow: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  simBtn: {
-    flex: 1,
-    minWidth: 140,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  simBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  // TC-KRI-004: High-Priority Thermal Warning Modal Overlay Styles
-  thermalModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  thermalModalContent: {
-    backgroundColor: '#1f1315',
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 2,
-    borderColor: '#ef4444',
-    shadowColor: '#ef4444',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 20,
-  },
-  thermalAlertHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  thermalAlertTag: {
-    backgroundColor: '#ef4444',
-    color: '#ffffff',
+  standbyStatLabel: {
+    color: '#748bac',
     fontSize: 10,
-    fontWeight: '800',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    letterSpacing: 0.5,
-  },
-  thermalAlertTemp: {
-    color: '#ef4444',
-    fontSize: 22,
-    fontWeight: '900',
-    fontFamily: 'System',
-  },
-  thermalAlertTitle: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  thermalAlertDesc: {
-    color: '#fca5a5',
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  thermalHapticNotice: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 20,
-  },
-  thermalHapticText: {
-    color: '#fee2e2',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  thermalDismissBtn: {
-    backgroundColor: '#ef4444',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  thermalDismissBtnText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  activePill: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.4)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  activePillText: {
-    color: '#10b981',
-    fontSize: 11,
     fontWeight: '700',
+    textTransform: 'uppercase',
   },
-  nextStopPreview: {
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.35)',
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  nextStopTitle: {
-    color: '#fbbf24',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  nextStopRoute: {
-    color: '#f4f6f8',
+  standbyStatVal: {
     fontSize: 12,
-    fontWeight: '600',
-    marginTop: 2,
+    fontWeight: '800',
+    marginTop: 4,
   },
-  nextStopFare: {
-    color: '#a2b2c7',
+  settlementNoticeBox: {
+    backgroundColor: 'rgba(232, 99, 49, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(232, 99, 49, 0.25)',
+    borderRadius: 10,
+    padding: 12,
+    width: '100%',
+  },
+  settlementNoticeTitle: {
+    color: '#fb923c',
     fontSize: 11,
-    marginTop: 2,
+    fontWeight: '800',
+    marginBottom: 2,
   },
+  settlementNoticeDesc: {
+    color: '#fed7aa',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  // QUEUE STACK
   queueContainer: {
     marginBottom: 20,
   },
@@ -1583,7 +1823,7 @@ const styles = StyleSheet.create({
   },
   queueFare: {
     color: '#22c55e',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '800',
     marginLeft: 8,
   },
@@ -1598,6 +1838,328 @@ const styles = StyleSheet.create({
   makeActiveBtnText: {
     color: '#fb923c',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  nextStopPreview: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  nextStopTitle: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  nextStopRoute: {
+    color: '#f4f6f8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  nextStopFare: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  // DRIVER TOOLS TAB
+  sectionTitle: {
+    color: '#f4f6f8',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 12,
+  },
+  toolsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  toolCard: {
+    flex: 1,
+    backgroundColor: '#1b2230',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+  },
+  toolIcon: {
+    fontSize: 26,
+    marginBottom: 6,
+  },
+  toolTitle: {
+    color: '#f4f6f8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  toolSubtitle: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  // TRIP HISTORY TAB
+  emptyHistoryCard: {
+    backgroundColor: '#1b2230',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+  },
+  emptyHistoryTitle: {
+    color: '#e2e8f0',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  emptyHistoryDesc: {
+    color: '#a2b2c7',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  historyCard: {
+    backgroundColor: '#1b2230',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+  },
+  historyStatusPill: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  historyStatusPillText: {
+    color: '#4ade80',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  historyFare: {
+    color: '#4ade80',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  historyRouteText: {
+    color: '#f4f6f8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  historyMetaText: {
+    color: '#a2b2c7',
+    fontSize: 11,
+  },
+  historyDateText: {
+    color: '#748bac',
+    fontSize: 11,
+  },
+  // WAKE LOCK
+  wakeLockBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+  },
+  wakeLockActive: {
+    backgroundColor: 'rgba(232, 99, 49, 0.15)',
+    borderColor: '#e86331',
+  },
+  wakeLockInactive: {
+    backgroundColor: 'rgba(162, 178, 199, 0.1)',
+    borderColor: '#2f3a4e',
+  },
+  wakeLockBadgeText: {
+    color: '#f4f6f8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  // SIM PANEL
+  simPanel: {
+    marginTop: 10,
+    backgroundColor: '#1b2230',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+  },
+  simPanelTitle: {
+    color: '#e86331',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  simPanelDesc: {
+    color: '#a2b2c7',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  simBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  simBtn: {
+    flex: 1,
+    minWidth: 140,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  simBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  // THERMAL WARNING MODAL
+  thermalModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  thermalModalContent: {
+    backgroundColor: '#1f1315',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 2,
+    borderColor: '#ef4444',
+  },
+  thermalAlertHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  thermalAlertTag: {
+    backgroundColor: '#ef4444',
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    letterSpacing: 0.5,
+  },
+  thermalAlertTemp: {
+    color: '#ef4444',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  thermalAlertTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  thermalAlertDesc: {
+    color: '#fca5a5',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  thermalHapticNotice: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 20,
+  },
+  thermalHapticText: {
+    color: '#fee2e2',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  thermalDismissBtn: {
+    backgroundColor: '#ef4444',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  thermalDismissBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  // OTP MODAL
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#293243',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+  },
+  modalTitle: {
+    color: '#f4f6f8',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modalSubtitle: {
+    color: '#a2b2c7',
+    fontSize: 13,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  otpInput: {
+    backgroundColor: '#0f141f',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    color: '#f4f6f8',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 10,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  modalCancelText: {
+    color: '#a2b2c7',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalVerifyBtn: {
+    backgroundColor: '#22c55e',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  modalVerifyText: {
+    color: '#f4f6f8',
+    fontSize: 14,
     fontWeight: '700',
   },
 });

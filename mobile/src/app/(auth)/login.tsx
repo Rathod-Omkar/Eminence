@@ -181,12 +181,18 @@ export default function LoginScreen() {
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
-      setErrorMessage('Email and password are required');
+      setErrorMessage(role === 'driver' ? 'Driver phone/email and password are required' : 'Email and password are required');
       return;
     }
     setLoading(true);
     setErrorMessage('');
-    const res = await loginWithPassword({ email, password, role });
+    const trimmedInput = email.trim();
+    const res = await loginWithPassword({
+      email: trimmedInput,
+      identifier: trimmedInput,
+      password,
+      role,
+    });
     setLoading(false);
     if (res.success) {
       if (role === 'driver') router.replace('/(driver)/dashboard');
@@ -222,10 +228,26 @@ export default function LoginScreen() {
         {/* Card */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
-            {step === 'email_login' ? 'Login to your Account' : step === 'email_register' ? 'Create an Account' : 'Verify'}
+            {role === 'driver'
+              ? 'Driver Portal Login'
+              : role === 'admin'
+                ? 'Admin Control Center'
+                : step === 'email_login'
+                  ? 'Login to your Account'
+                  : step === 'email_register'
+                    ? 'Create an Account'
+                    : 'Verify'}
           </Text>
           <Text style={styles.cardSubtitle}>
-            {step === 'email_login' ? 'Enter your email and password' : step === 'email_register' ? 'Fill out the form to register' : ''}
+            {role === 'driver'
+              ? 'Sign in to access your appointed fleet work orders'
+              : role === 'admin'
+                ? 'Authorized management personnel only'
+                : step === 'email_login'
+                  ? 'Enter your email and password'
+                  : step === 'email_register'
+                    ? 'Fill out the form to register'
+                    : ''}
           </Text>
 
           {/* Role selector (Customer vs Driver vs Admin) */}
@@ -317,9 +339,9 @@ export default function LoginScreen() {
           ) : step === 'email_login' ? (
             <View style={styles.inputGroup}>
               {role === 'driver' ? (
-                <View style={{ backgroundColor: '#2a1b15', borderColor: '#e86331', borderWidth: 1, padding: 12, borderRadius: 8, marginBottom: 16 }}>
-                  <Text style={{ color: '#fed7aa', fontSize: 12, textAlign: 'center' }}>
-                    🛡️ Fleet Driver Portal: Login with credentials directly provisioned by your Administrator.
+                <View style={{ backgroundColor: '#2a1b15', borderColor: '#e86331', borderWidth: 1, padding: 12, borderRadius: 10, marginBottom: 16 }}>
+                  <Text style={{ color: '#fed7aa', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
+                    🛡️ Fleet Driver Portal: Login with credentials directly provisioned by your Administrator to view appointed work orders.
                   </Text>
                 </View>
               ) : (
@@ -343,8 +365,30 @@ export default function LoginScreen() {
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>{role === 'driver' ? 'Driver Phone or Email' : 'Email / Username / Phone'}</Text>
-                <TextInput style={styles.input} placeholder={role === 'driver' ? '9876543210 or driver@eminence.com' : 'Enter your email, username, or phone'} placeholderTextColor="#a2b2c7" keyboardType="default" autoCapitalize="none" value={email} onChangeText={setEmail} />
+                <TextInput
+                  style={styles.input}
+                  placeholder={role === 'driver' ? '9822011001 or driver@eminence.com' : 'Enter your email, username, or phone'}
+                  placeholderTextColor="#a2b2c7"
+                  keyboardType="default"
+                  autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
+                />
               </View>
+
+              {role === 'driver' && (
+                <TouchableOpacity
+                  style={styles.demoFillBtn}
+                  onPress={() => {
+                    setEmail('9822011001');
+                    setPassword('Admin@123');
+                    setErrorMessage('');
+                  }}
+                >
+                  <Text style={styles.demoFillText}>⚡ Quick Fill Demo Driver (9822011001)</Text>
+                </TouchableOpacity>
+              )}
+
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Password</Text>
                 <View style={styles.passwordContainer}>
@@ -366,11 +410,17 @@ export default function LoginScreen() {
               </View>
               
               <TouchableOpacity style={styles.primaryBtn} onPress={handleEmailLogin} disabled={loading}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Login</Text>}
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>
+                    {role === 'driver' ? 'Secure Driver Login' : 'Login'}
+                  </Text>
+                )}
               </TouchableOpacity>
               
               {role === 'driver' ? (
-                <Text style={{ color: '#a2b2c7', fontSize: 12, textAlign: 'center', marginTop: 12 }}>
+                <Text style={{ color: '#a2b2c7', fontSize: 12, textAlign: 'center', marginTop: 14 }}>
                   Need driver access? Contact your fleet administrator.
                 </Text>
               ) : (
