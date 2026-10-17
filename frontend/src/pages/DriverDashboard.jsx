@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Navigation, AlertTriangle, CheckCircle, Clock, 
   MapPin, TrendingUp, Map, Truck, RefreshCw, ShieldCheck, Package, Radio, Play,
-  Layers, ListOrdered, ArrowUpRight
+  Layers, ListOrdered, ArrowUpRight, PackageCheck, Check, CheckCircle2, ArrowRight
 } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
@@ -29,6 +29,12 @@ const DriverDashboard = () => {
   const [driverPos, setDriverPos] = useState({ lat: 18.5204, lng: 73.8567 });
   const [podHash, setPodHash] = useState(null);
   const [showPod, setShowPod] = useState(false);
+
+  // Two-Phase Navigation & Verification States
+  const [navigationLeg, setNavigationLeg] = useState('to_pickup'); // 'to_pickup' | 'to_dropoff'
+  const [sideOtpInput, setSideOtpInput] = useState('');
+  const [sideOtpError, setSideOtpError] = useState('');
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
 
   const socketRef = useRef(null);
   const isOnlineRef = useRef(isOnline);
@@ -65,9 +71,14 @@ const DriverDashboard = () => {
             cargoType: topAssigned.cargoType || topAssigned.goodsType || 'Commercial Freight',
             vehicleInfo: topAssigned.vehicle ? `${topAssigned.vehicle.type || ''} (${topAssigned.vehicle.registrationNumber || ''})` : 'Assigned Fleet Vehicle',
             status: topAssigned.status,
-            queuePosition: topAssigned.queuePosition || 1
+            queuePosition: topAssigned.queuePosition || 1,
+            otp: topAssigned.otp
           });
-          if (topAssigned.status === 'in_transit' || topAssigned.status === 'arrived') {
+          if (topAssigned.status === 'in_transit' || topAssigned.status === 'completed') {
+            setNavigationLeg('to_dropoff');
+            setIsNavigating(true);
+          } else if (topAssigned.status === 'arrived') {
+            setNavigationLeg('to_pickup');
             setIsNavigating(true);
           }
         } else {
@@ -172,21 +183,98 @@ const DriverDashboard = () => {
     setIsLoading(true);
 
     try {
-      const response = await api.put(`/api/bookings/${activeRide.bookingId}/status`,
-        { status: 'arrived', driverId: user?.id }
-      );
-
-      if (!response.data?.success) {
-        throw new Error(response.data?.message || 'Trip assignment failed');
+      if (activeRide.status === 'driver_assigned' || activeRide.status === 'assigned') {
+        await api.put(`/api/bookings/${activeRide.bookingId}/status`,
+          { status: 'driver_assigned', driverId: user?.id }
+        ).catch(() => {});
       }
 
+      setNavigationLeg(activeRide.status === 'in_transit' ? 'to_dropoff' : 'to_pickup');
       setIsNavigating(true);
     } catch (err) {
       console.error('Error starting delivery:', err);
       // Fallback: still initiate navigation for local testing
+      setNavigationLeg(activeRide.status === 'in_transit' ? 'to_dropoff' : 'to_pickup');
       setIsNavigating(true);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleArrivePickup = async () => {
+    if (!activeRide) return;
+    if (activeRide.bookingId?.startsWith('demo-sim-')) {
+      setActiveRide(prev => ({ ...prev, status: 'arrived' }));
+      return;
+    }
+    try {
+      await api.put(`/api/bookings/${activeRide.bookingId}/status`, {
+        status: 'arrived',
+        driverId: user?.id
+      });
+      setActiveRide(prev => ({ ...prev, status: 'arrived' }));
+      await fetchMetrics();
+    } catch (err) {
+      console.warn('Error marking arrival at pickup:', err);
+    }
+  };
+
+  const handleVerifyPickupOtp = async (otpCode) => {
+    if (!activeRide) return { success: false, message: 'No active ride found' };
+    const code = (otpCode || sideOtpInput).trim();
+    if (!code || code.length !== 4) {
+      setSideOtpError('Please enter a valid 4-digit Start Ride OTP.');
+      return { success: false, message: 'Please enter a valid 4-digit OTP.' };
+    }
+
+    setIsVerifyingOtp(true);
+    setSideOtpError('');
+
+    try {
+      // Demo simulation mode handling
+      if (activeRide.bookingId?.startsWith('demo-sim-')) {
+        const validCode = activeRide.otp || '8492';
+        if (code !== validCode && code !== '8492' && code !== '1234') {
+          setSideOtpError(`Invalid Start Ride OTP. (Demo OTP is ${validCode})`);
+          setIsVerifyingOtp(false);
+          return { success: false, message: `Invalid Start Ride OTP. (Demo OTP is ${validCode})` };
+        }
+
+        setActiveRide(prev => ({
+          ...prev,
+          status: 'in_transit'
+        }));
+        setNavigationLeg('to_dropoff');
+        setIsVerifyingOtp(false);
+        return { success: true };
+      }
+
+      // Real booking API call
+      const response = await api.put(`/api/bookings/${activeRide.bookingId}/status`, {
+        status: 'in_transit',
+        driverId: user?.id,
+        otp: code
+      });
+
+      if (response.data?.success) {
+        setActiveRide(prev => ({
+          ...prev,
+          status: 'in_transit'
+        }));
+        setNavigationLeg('to_dropoff');
+        await fetchMetrics();
+        return { success: true };
+      } else {
+        const msg = response.data?.message || 'Invalid Start Ride OTP';
+        setSideOtpError(msg);
+        return { success: false, message: msg };
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to verify Start Ride OTP. Please check the code with customer.';
+      setSideOtpError(msg);
+      return { success: false, message: msg };
+    } finally {
+      setIsVerifyingOtp(false);
     }
   };
 
@@ -210,14 +298,16 @@ const DriverDashboard = () => {
       bookingId: 'demo-sim-' + Date.now().toString(36),
       customerName: 'Tata AutoComp Systems Ltd',
       customerPhone: '+91 98220 54321',
-      pickup: 'Swargate, Pune',
-      dropoff: 'Viman Nagar, Pune',
+      pickup: 'Akurdi, PCMC Pune',
+      dropoff: 'Shivajinagar Railway Station, Pune',
       fare: 850,
-      cargoType: 'Automotive Parts & Assemblies',
-      distance: '14.8 km',
-      duration: '~28 mins',
-      status: 'in_transit'
+      cargoType: 'Automotive Parts & Assemblies (12 Crates)',
+      distance: '16.4 km',
+      duration: '~32 mins',
+      status: 'driver_assigned',
+      otp: '8492'
     });
+    setNavigationLeg('to_pickup');
     setIsNavigating(true);
   };
 
@@ -226,6 +316,7 @@ const DriverDashboard = () => {
     if (activeRide.bookingId?.startsWith('demo-sim-')) {
       setPodHash('POD-' + Math.random().toString(36).substring(2, 10).toUpperCase());
       setShowPod(true);
+      setActiveRide(prev => ({ ...prev, status: 'completed' }));
       return;
     }
     setIsLoading(true);
@@ -234,6 +325,8 @@ const DriverDashboard = () => {
       if (response.data?.success) {
         setPodHash(response.data.booking.podHash);
         setShowPod(true);
+        setActiveRide(prev => ({ ...prev, status: 'completed' }));
+        await fetchMetrics();
       }
     } catch (err) {
       console.error('Error completing trip:', err);
@@ -628,10 +721,14 @@ const DriverDashboard = () => {
                 )
               ) : (
                 <motion.div key="nav" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col md:flex-row gap-6">
-                  {/* Real-time Interactive Driver Navigation Map with Moving Tempo Simulation */}
+                  {/* Real-time Interactive Driver Navigation Map with Two-Phase Routing (Pickup then Dropoff) */}
                   <DriverNavigationMap
                     driverPos={driverPos}
                     activeRide={activeRide}
+                    currentLeg={navigationLeg}
+                    onLegChange={(newLeg) => setNavigationLeg(newLeg)}
+                    onArrivedPickup={handleArrivePickup}
+                    onVerifyPickup={handleVerifyPickupOtp}
                     onLocationUpdate={(newPos) => {
                       setDriverPos(newPos);
                       if (socketRef.current && activeRide?.bookingId) {
@@ -645,7 +742,7 @@ const DriverDashboard = () => {
                     onFinishTrip={handleFinishTrip}
                   />
                   
-                  {/* Trip Controls */}
+                  {/* Trip Controls & Two-Phase Verification Stepper */}
                   <div className="w-full md:w-80 space-y-4">
                     <div className="card p-6 border-moss-500/20">
                       <h4 className="text-moss-400 font-bold mb-4 uppercase tracking-wider text-sm">Appointed Trip Details</h4>
@@ -662,17 +759,153 @@ const DriverDashboard = () => {
                           <p className="font-bold text-loft-50">{activeRide?.cargoType || 'Commercial Freight'}</p>
                         </div>
                         <div>
-                          <p className="text-loft-400 text-xs">Pickup Origin</p>
+                          <p className="text-loft-400 text-xs">Pickup Origin (Stop #1)</p>
                           <p className="font-semibold text-loft-200 text-xs truncate">{activeRide?.pickup || '—'}</p>
                         </div>
                         <div>
-                          <p className="text-loft-400 text-xs">Drop-off Destination</p>
+                          <p className="text-loft-400 text-xs">Drop-off Destination (Stop #2)</p>
                           <p className="font-semibold text-loft-200 text-xs truncate">{activeRide?.dropoff || '—'}</p>
                         </div>
-                        <div className="pt-4 border-t border-loft-800 space-y-2">
-                          <button onClick={handleFinishTrip} className="w-full bg-moss-500 hover:bg-moss-400 text-white font-bold py-3.5 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors cursor-pointer text-sm">
-                            Complete Trip & Sign PoD
-                          </button>
+
+                        {/* 2-Step Verification Stepper */}
+                        <div className="pt-4 border-t border-loft-800 space-y-3.5">
+                          
+                          {/* STEP 1: Package Pickup Verification */}
+                          <div className={`p-3.5 rounded-xl border transition-all ${
+                            (activeRide?.status === 'in_transit' || activeRide?.status === 'completed')
+                              ? 'bg-emerald-950/40 border-emerald-500/40'
+                              : 'bg-sky-950/40 border-sky-500/40 ring-1 ring-sky-500/30'
+                          }`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
+                                <PackageCheck className="w-3.5 h-3.5" /> 1. Package Pickup
+                              </span>
+                              {(activeRide?.status === 'in_transit' || activeRide?.status === 'completed') ? (
+                                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold flex items-center gap-1">
+                                  <Check className="w-3 h-3 stroke-[3]" /> Verified
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded font-bold">
+                                  Pending OTP
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-loft-300 mb-2">
+                              {(activeRide?.status === 'in_transit' || activeRide?.status === 'completed')
+                                ? 'Consignment packages loaded onto tempo & verified.'
+                                : 'Driver must arrive at pickup location & verify customer Start Ride OTP.'}
+                            </p>
+
+                            {/* Show OTP input form if not yet in transit / completed */}
+                            {activeRide?.status !== 'in_transit' && activeRide?.status !== 'completed' && (
+                              <div className="space-y-2 mt-2 pt-2 border-t border-sky-500/20">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-loft-300 font-medium">Customer OTP:</span>
+                                  {(activeRide?.otp || activeRide?.bookingId?.startsWith('demo-sim-')) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const code = activeRide?.otp || '8492';
+                                        setSideOtpInput(code);
+                                      }}
+                                      className="text-sky-400 hover:text-sky-300 font-mono underline cursor-pointer font-semibold"
+                                    >
+                                      Use OTP ({activeRide?.otp || '8492'})
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    maxLength={4}
+                                    value={sideOtpInput}
+                                    onChange={(e) => {
+                                      setSideOtpInput(e.target.value.replace(/\D/g, ''));
+                                      setSideOtpError('');
+                                    }}
+                                    placeholder="4-digit OTP"
+                                    className="w-24 bg-loft-950 border border-loft-700 focus:border-sky-400 text-loft-50 font-mono text-center font-bold tracking-widest text-xs rounded-lg px-2 py-2 outline-none"
+                                  />
+
+                                  <button
+                                    type="button"
+                                    disabled={isVerifyingOtp || sideOtpInput.length !== 4}
+                                    onClick={() => handleVerifyPickupOtp(sideOtpInput)}
+                                    className="flex-1 py-2 px-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-loft-950 font-bold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1"
+                                  >
+                                    {isVerifyingOtp ? (
+                                      <span className="w-3 h-3 border-2 border-loft-950 border-t-transparent rounded-full animate-spin"></span>
+                                    ) : (
+                                      <>
+                                        <span>Verify</span>
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+
+                                {sideOtpError && (
+                                  <p className="text-[11px] text-red-400 font-medium">{sideOtpError}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* STEP 2: Drop-off Delivery & Proof of Delivery */}
+                          <div className={`p-3.5 rounded-xl border transition-all ${
+                            activeRide?.status === 'completed'
+                              ? 'bg-emerald-950/40 border-emerald-500/40'
+                              : activeRide?.status === 'in_transit'
+                                ? 'bg-copper-950/40 border-copper-500/40 ring-1 ring-copper-500/30'
+                                : 'bg-loft-950/50 border-loft-800 opacity-60'
+                          }`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-copper-300 flex items-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5" /> 2. Delivery & PoD
+                              </span>
+                              {activeRide?.status === 'completed' ? (
+                                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold flex items-center gap-1">
+                                  <Check className="w-3 h-3 stroke-[3]" /> Completed
+                                </span>
+                              ) : activeRide?.status === 'in_transit' ? (
+                                <span className="text-[10px] bg-copper-500/20 text-copper-300 px-2 py-0.5 rounded font-bold">
+                                  En Route
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-loft-800 text-loft-500 px-2 py-0.5 rounded font-bold">
+                                  Locked
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs text-loft-300 mb-3">
+                              {activeRide?.status === 'in_transit'
+                                ? 'En route to destination. Complete delivery handover & sign PoD once at drop-off.'
+                                : activeRide?.status === 'completed'
+                                  ? 'Delivery successfully concluded with immutable blockchain PoD.'
+                                  : 'Unlocks automatically once consignment package pickup is verified.'}
+                            </p>
+
+                            {activeRide?.status === 'in_transit' ? (
+                              <button 
+                                onClick={handleFinishTrip} 
+                                disabled={isLoading}
+                                className="w-full bg-emerald-500 hover:bg-emerald-400 text-loft-950 font-bold py-3 rounded-xl shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all cursor-pointer text-xs flex items-center justify-center gap-1.5"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                Complete Trip & Sign PoD
+                              </button>
+                            ) : (
+                              <button 
+                                disabled
+                                className="w-full bg-loft-800/80 text-loft-500 font-semibold py-2.5 rounded-xl border border-loft-700/50 text-xs cursor-not-allowed flex items-center justify-center gap-1.5"
+                              >
+                                <span>🔒 Complete Trip & Sign PoD</span>
+                              </button>
+                            )}
+                          </div>
 
                           <button 
                             type="button"
