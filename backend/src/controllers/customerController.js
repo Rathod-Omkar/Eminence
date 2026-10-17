@@ -1,6 +1,6 @@
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
-const { Customer, Wallet, Transaction } = require('../models');
+const { Customer, Wallet, Transaction, Booking } = require('../models');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_mock',
@@ -143,10 +143,19 @@ const getProStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Customer not found' });
     }
 
+    const completedCount = await Booking.count({
+      where: { customerId: customer.id, status: 'completed' }
+    }).catch(() => 0);
+    const resolvedTrips = Math.max(customer.totalTrips || 0, completedCount);
+    if (customer.totalTrips !== resolvedTrips) {
+      customer.totalTrips = resolvedTrips;
+      await customer.save().catch(() => {});
+    }
+
     return res.status(200).json({
       success: true,
       isPro: Boolean(customer.isPro),
-      totalTrips: customer.totalTrips || 0,
+      totalTrips: resolvedTrips,
       perks: {
         discountPercent: 5,
         zeroCancellationFee: true,

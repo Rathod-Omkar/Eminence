@@ -148,6 +148,11 @@ export default function AdminManagementScreen() {
   };
 
   const handleDeleteAdmin = (admin: AdminItem) => {
+    if (admin.email?.toLowerCase() === 'admin@eminence.com' || (admin as any).isPrimary) {
+      Alert.alert('Action Denied', 'The primary Super Administrator account cannot be deleted.');
+      return;
+    }
+
     if (admins.length <= 1) {
       Alert.alert('Action Denied', 'Cannot delete the only remaining administrator.');
       return;

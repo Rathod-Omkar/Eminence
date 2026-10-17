@@ -122,6 +122,23 @@ export const KNOWN_PUNE_LOCATIONS = {
   'aurangabad': { lat: 19.8762, lng: 75.3433, name: 'Chhatrapati Sambhajinagar' },
   'sambhajinagar': { lat: 19.8762, lng: 75.3433, name: 'Chhatrapati Sambhajinagar' },
   'nagpur': { lat: 21.1458, lng: 79.0882, name: 'Nagpur, Maharashtra' },
+
+  // Key Educational, Residential & Prominent Pune Suburb Landmarks
+  'delhi public school': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Mohammadwadi, Pune' },
+  'dps pune': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Mohammadwadi, Pune' },
+  'dps': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Pune' },
+  'nyati estate': { lat: 18.4735, lng: 73.9055, name: 'Nyati Estate, Mohammadwadi, Pune' },
+  'krushna nagar': { lat: 18.4740, lng: 73.9060, name: 'Krushna Nagar, Mohammadwadi, Pune' },
+  'shiva heights': { lat: 18.5985, lng: 73.7825, name: 'Shiva Heights, Vishal Nagar, Pimpri-Chinchwad' },
+  'vishal nagar': { lat: 18.5980, lng: 73.7830, name: 'Vishal Nagar, Pimpri-Chinchwad' }
+};
+
+// Intercity freight destinations outside Pune Metropolitan Area
+export const INTERCITY_HUBS = {
+  'hyderabad': { lat: 17.3850, lng: 78.4867, name: 'Hyderabad, Telangana' },
+  'secunderabad': { lat: 17.4399, lng: 78.4983, name: 'Secunderabad, Telangana' },
+  'bengaluru': { lat: 12.9716, lng: 77.5946, name: 'Bengaluru, Karnataka' },
+  'bangalore': { lat: 12.9716, lng: 77.5946, name: 'Bangalore, Karnataka' },
   'goa': { lat: 15.2993, lng: 74.1240, name: 'Goa' },
   'delhi': { lat: 28.6139, lng: 77.2090, name: 'Delhi NCR' },
   'chennai': { lat: 13.0827, lng: 80.2707, name: 'Chennai, Tamil Nadu' },
@@ -137,12 +154,35 @@ export const KNOWN_PUNE_LOCATIONS = {
 export const matchPuneKnownLocation = (rawAddress) => {
   if (!rawAddress || typeof rawAddress !== 'string') return null;
   const lower = rawAddress.toLowerCase().trim();
+
+  // 1. Check Pune landmarks first (longest match first)
   const sortedKeys = Object.keys(KNOWN_PUNE_LOCATIONS).sort((a, b) => b.length - a.length);
   for (const key of sortedKeys) {
     if (lower.includes(key)) {
       return { key, ...KNOWN_PUNE_LOCATIONS[key] };
     }
   }
+
+  // 2. Intercity hubs should ONLY match if the address is explicitly targeting that other city,
+  // NOT when it's an intra-Pune address mentioning a school, road, or shop (e.g., Delhi Public School, Indore Sweets)
+  const isExplicitPuneContext = lower.includes('pune') || 
+                                lower.includes('pcmc') || 
+                                lower.includes('maharashtra') || 
+                                lower.includes('school') || 
+                                lower.includes('road') || 
+                                lower.includes('estate') || 
+                                lower.includes('nagar');
+
+  if (!isExplicitPuneContext) {
+    const hubKeys = Object.keys(INTERCITY_HUBS).sort((a, b) => b.length - a.length);
+    for (const key of hubKeys) {
+      const wordRegex = new RegExp(`\\b${key}\\b`, 'i');
+      if (wordRegex.test(lower)) {
+        return { key, ...INTERCITY_HUBS[key] };
+      }
+    }
+  }
+
   return null;
 };
 
@@ -339,4 +379,343 @@ export const fetchOsrmRoute = async (points) => {
     isFallback: true
   };
 };
+
+/**
+ * Standard PIN code mapping for major Pune & PCMC localities, corridors and suburbs.
+ */
+export const PUNE_LOCALITY_PINCODES = {
+  // Kothrud & Paud Road
+  'kothrud depot': '411038',
+  'kothrud': '411038',
+  'paud road': '411038',
+  'vanaz': '411038',
+  'gujarat colony': '411038',
+  'ideal colony': '411038',
+  'mayur colony': '411038',
+  'dahanukar colony': '411038',
+  'paramhans nagar': '411038',
+  'chandani chowk': '411038',
+  'kinara': '411038',
+
+  // Hinjewadi & Wakad
+  'hinjewadi phase 1': '411057',
+  'hinjewadi phase 2': '411057',
+  'hinjewadi phase 3': '411057',
+  'hinjewadi': '411057',
+  'hinjawadi': '411057',
+  'wakad': '411057',
+  'bhumkar chowk': '411057',
+  'datta mandir': '411057',
+  'kaspate vasti': '411057',
+
+  // Baner & Balewadi
+  'balewadi high street': '411045',
+  'balewadi stadium': '411045',
+  'balewadi': '411045',
+  'baner road': '411045',
+  'baner': '411045',
+  'pancard club': '411045',
+  'mahalunge': '411045',
+
+  // Aundh & University
+  'dp road': '411007',
+  'aundh': '411007',
+  'sindh society': '411007',
+  'parihar chowk': '411007',
+  'medipoint': '411007',
+  'anand park': '411007',
+  'ganeshkhind': '411007',
+  'pune university': '411007',
+  'sppu': '411007',
+
+  // Pashan & Bavdhan
+  'bavdhan khurd': '411021',
+  'bavdhan budruk': '411021',
+  'bavdhan': '411021',
+  'pashan': '411021',
+  'sus road': '411021',
+  'sus': '411021',
+
+  // Karve Nagar & Warje
+  'karve nagar': '411052',
+  'cummins college': '411052',
+  'hingne': '411052',
+  'warje malwadi': '411058',
+  'warje': '411058',
+  'popular nagar': '411058',
+  'mai mangeshkar': '411058',
+  'atul nagar': '411058',
+
+  // Deccan & Erandwane
+  'deccan gymkhana': '411004',
+  'deccan': '411004',
+  'erandwane': '411004',
+  'prabhat road': '411004',
+  'law college road': '411004',
+  'law college': '411004',
+  'bhandarkar road': '411004',
+  'bhandarkar': '411004',
+  'bmcc': '411004',
+  'brihan maharashtra': '411004',
+  'karve road': '411004',
+
+  // Shivajinagar & Central
+  'shivajinagar station': '411005',
+  'shivajinagar': '411005',
+  'jm road': '411005',
+  'jangali maharaj': '411005',
+  'fc road': '411004',
+  'fergusson': '411004',
+  'coep': '411005',
+  'wakdewadi': '411005',
+  'senapati bapat': '411016',
+  'sb road': '411016',
+  'model colony': '411016',
+  'gokhale nagar': '411016',
+
+  // Pune Camp & Station
+  'pune railway station': '411001',
+  'pune railway': '411001',
+  'pune station': '411001',
+  'bund garden': '411001',
+  'boat club': '411001',
+  'mg road': '411001',
+  'east street': '411001',
+  'camp': '411001',
+  'ghorpuri': '411001',
+  'ghorpadi': '411001',
+  'sassoon': '411001',
+  'koregaon park': '411001',
+
+  // Old City (Peths)
+  'shaniwar wada': '411030',
+  'shaniwar peth': '411030',
+  'sadashiv peth': '411030',
+  'narayan peth': '411030',
+  'tilak road': '411030',
+  'kumthekar road': '411030',
+  'kumthekar': '411030',
+  'sp college': '411030',
+  'perugate': '411030',
+  'budhwar peth': '411002',
+  'shukrawar peth': '411002',
+  'laxmi road': '411002',
+  'dagdusheth': '411002',
+  'mandai': '411002',
+  'tulshibaug': '411002',
+  'bajirao road': '411002',
+  'kasba peth': '411011',
+  'rasta peth': '411011',
+  'somwar peth': '411011',
+  'mangalwar peth': '411011',
+  'guruwar peth': '411042',
+  'swargate bus': '411042',
+  'swargate': '411042',
+  'parvati': '411009',
+  'mitra mandal': '411009',
+  'sarasbaug': '411009',
+  'gultekdi': '411037',
+  'market yard': '411037',
+
+  // Kalyani Nagar & Yerawada
+  'kalyani nagar': '411006',
+  'yerawada': '411006',
+  'yerwada': '411006',
+  'shastri nagar': '411006',
+  'golf course': '411006',
+
+  // Viman Nagar & Airport & Kharadi
+  'pune international airport': '411032',
+  'pune airport': '411032',
+  'lohegaon airport': '411032',
+  'tingre nagar': '411015',
+  'vishrantwadi': '411015',
+  'dhanori': '411015',
+  'lohegaon': '411047',
+  'porwal road': '411047',
+  'viman nagar': '411014',
+  'kharadi': '411014',
+  'eon it park': '411014',
+  'eon': '411014',
+  'world trade center': '411014',
+  'wtc': '411014',
+  'vadgaon sheri': '411014',
+  'chandan nagar': '411014',
+
+  // Wagholi
+  'bjs school': '412207',
+  'bjs college': '412207',
+  'bjs': '412207',
+  'bakori road': '412207',
+  'bakori': '412207',
+  'wagholi': '412207',
+  'kesnand': '412207',
+  'ivy estate': '412207',
+  'ubale nagar': '412207',
+
+  // Hadapsar & Magarpatta & Mundhwa
+  'magarpatta city': '411028',
+  'magarpatta': '411028',
+  'amanora': '411028',
+  'hadapsar': '411028',
+  'gadital': '411028',
+  'noble hospital': '411028',
+  'sasane nagar': '411028',
+  'mundhwa': '411036',
+  'keshav nagar': '411036',
+  'pingale vasti': '411036',
+  'manjri': '412307',
+  'manjari': '412307',
+  'phursungi': '412308',
+  'sp infocity': '412308',
+  'fursungi': '412308',
+
+  // Wanowrie & Kondhwa & Mohammadwadi
+  'wanowrie': '411040',
+  'wanwadi': '411040',
+  'fatima nagar': '411040',
+  'salunke vihar': '411040',
+  'kedari nagar': '411040',
+  'lulla nagar': '411040',
+  'delhi public school': '411048',
+  'dps pune': '411048',
+  'dps': '411048',
+  'nyati estate': '411048',
+  'krushna nagar': '411048',
+  'mohammadwadi': '411048',
+  'kondhwa': '411048',
+  'nibm road': '411048',
+  'nibm': '411048',
+  'undri': '411060',
+  'pisoli': '411060',
+  'yeolewadi': '411048',
+  'yewalewadi': '411048',
+
+  // Katraj & Dhankawadi & Bibwewadi & Sinhagad Road
+  'katraj': '411046',
+  'bharati vidyapeeth': '411046',
+  'wonder city': '411046',
+  'dhankawadi': '411043',
+  'balaji nagar': '411043',
+  'padmavati': '411043',
+  'bibwewadi': '411037',
+  'salisbury park': '411037',
+  'gangadham': '411037',
+  'narhe': '411041',
+  'ambegaon': '411046',
+  'sinhagad road': '411041',
+  'vadgaon budruk': '411041',
+  'anand nagar': '411041',
+  'manik baug': '411041',
+  'dhayari': '411041',
+  'nanded city': '411041',
+  'abhiruchi': '411041',
+
+  // PCMC Localities
+  'pimple saudagar': '411027',
+  'pimple gurav': '411027',
+  'pimple nilakh': '411027',
+  'vishal nagar': '411027',
+  'shiva heights': '411027',
+  'kunal icon': '411027',
+  'rahatani': '411017',
+  'sangvi': '411027',
+  'new sangvi': '411027',
+  'old sangvi': '411027',
+  'chinchwad station': '411033',
+  'chinchwad gaon': '411033',
+  'chinchwad': '411033',
+  'thergaon': '411033',
+  'dange chowk': '411033',
+  'kalewadi': '411017',
+  'tathawade': '411033',
+  'punawale': '411033',
+  'pimpri': '411018',
+  'nehrunagar': '411018',
+  'morwadi': '411018',
+  'bhosari': '411026',
+  'landewadi': '411026',
+  'indrayani nagar': '411026',
+  'nigdi': '411044',
+  'pradhikaran': '411044',
+  'yamuna nagar': '411044',
+  'akurdi': '411035',
+  'ravet': '412101',
+  'kiwale': '412101',
+  'dehu road': '412101',
+  'chakan': '410501',
+  'talegaon': '410507',
+  'alandi': '412105'
+};
+
+/**
+ * Intelligent helper to extract/auto-resolve a 6-digit Pune PIN code from:
+ * 1) Nominatim address details object (postcode)
+ * 2) Explicit 6-digit PIN code in text (e.g. 411038)
+ * 3) Pune/PCMC locality & landmark dictionary lookup
+ *
+ * @param {string} addressOrLocality - The raw address or query string
+ * @param {object} [rawObj] - Optional raw geocoder / Nominatim result object
+ * @returns {string} 6-digit postal code if resolved, else empty string
+ */
+export const getPunePincode = (addressOrLocality, rawObj = null) => {
+  // 1. Check rawObj Nominatim address postcode if valid 6-digit PIN
+  const rawPostcode = rawObj?.postalCode ||
+                      rawObj?.postcode ||
+                      rawObj?.address?.postcode || 
+                      rawObj?.raw?.address?.postcode;
+  if (rawPostcode) {
+    const cleaned = String(rawPostcode).replace(/\D/g, '').slice(0, 6);
+    if (cleaned.length === 6 && (cleaned.startsWith('41') || cleaned.startsWith('40') || cleaned.startsWith('42'))) {
+      return cleaned;
+    }
+  }
+
+  // 2. Check if a 6-digit PIN code is directly in the address text
+  const combinedText = [
+    typeof addressOrLocality === 'string' ? addressOrLocality : '',
+    rawObj?.display_name || '',
+    rawObj?.name || '',
+    rawObj?.custom_address || '',
+    rawObj?.raw?.display_name || ''
+  ].filter(Boolean).join(' ');
+
+  const pinRegexMatch = combinedText.match(/\b(41\d{4}|412\d{3}|410\d{3}|40\d{4})\b/);
+  if (pinRegexMatch) {
+    return pinRegexMatch[1];
+  }
+
+  // 3. Match against known Pune / PCMC locality pincodes
+  const lower = combinedText.toLowerCase();
+  
+  const matches = [];
+  const sortedKeys = Object.keys(PUNE_LOCALITY_PINCODES).sort((a, b) => b.length - a.length);
+  for (const key of sortedKeys) {
+    const idx = lower.indexOf(key);
+    if (idx !== -1) {
+      matches.push({ key, index: idx, length: key.length, pincode: PUNE_LOCALITY_PINCODES[key] });
+    }
+  }
+
+  if (matches.length > 0) {
+    // Prioritize earlier occurrence in address (e.g. specific locality at start),
+    // and if close/same position, longer key match (e.g. 'kothrud depot' over 'kothrud')
+    matches.sort((a, b) => {
+      if (Math.abs(a.index - b.index) > 5) {
+        return a.index - b.index;
+      }
+      return b.length - a.length;
+    });
+    return matches[0].pincode;
+  }
+
+  // 4. Check KNOWN_PUNE_LOCATIONS
+  const locMatch = matchPuneKnownLocation(lower);
+  if (locMatch?.postalCode) {
+    return locMatch.postalCode;
+  }
+
+  return '';
+};
+
 

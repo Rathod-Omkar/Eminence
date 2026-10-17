@@ -34,8 +34,12 @@ const adminLogin = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
+    const primaryEmail = (process.env.SEED_EMAIL || 'admin@eminence.com').toLowerCase();
+    const isPrimary = Boolean(admin.isPrimary || (admin.email && admin.email.toLowerCase() === primaryEmail));
+    const adminRole = isPrimary ? 'Superadmin' : (admin.role || 'Support Admin');
+
     const token = jwt.sign(
-      { id: admin.id, role: 'admin' },
+      { id: admin.id, role: 'admin', adminRole, isPrimary },
       getJwtSecret(),
       { expiresIn: process.env.JWT_EXPIRE || '1d' }
     );
@@ -54,7 +58,9 @@ const adminLogin = async (req, res) => {
         id: admin.id,
         email: admin.email,
         name: admin.name,
-        role: 'admin'
+        role: 'admin',
+        adminRole,
+        isPrimary
       }
     });
 

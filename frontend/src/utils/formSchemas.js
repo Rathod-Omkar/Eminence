@@ -40,11 +40,26 @@ export const bookingLocationsSchema = z.object({
   time: z.string().min(1, 'Please select a pickup time')
 });
 
+export const VEHICLE_CAPACITIES = {
+  small: 750,
+  medium: 1500,
+  large: 5000
+};
+
 export const bookingDetailsSchema = z.object({
   goodsType: z.string().trim().min(2, 'Please specify goods type'),
   weight: z.coerce.number().positive('Weight must be greater than 0').max(25000, 'Max capacity is 25,000 kg'),
   tempoType: z.enum(['small', 'medium', 'large']),
   totalDistance: z.coerce.number().positive('Distance must be greater than 0 km').max(5000, 'Distance cannot exceed 5000 km')
+}).superRefine((data, ctx) => {
+  const maxCap = VEHICLE_CAPACITIES[data.tempoType] || 5000;
+  if (data.weight > maxCap) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Cargo weight (${data.weight}kg) exceeds maximum capacity for ${data.tempoType} vehicle (${maxCap}kg)`,
+      path: ['weight']
+    });
+  }
 });
 
 export const bookingPaymentSchema = z.object({

@@ -10,7 +10,7 @@ import { useSelector } from 'react-redux';
 import api from '../services/api';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
 import RouteMapPreview from '../components/Customer/Booking/RouteMapPreview';
-import { bookingLocationsSchema, bookingDetailsSchema, bookingPaymentSchema } from '../utils/formSchemas';
+import { bookingLocationsSchema, bookingDetailsSchema, bookingPaymentSchema, VEHICLE_CAPACITIES } from '../utils/formSchemas';
 import AuthModal from '../components/Auth/AuthModal';
 import { geocodeAddress, fetchOsrmRoute } from '../utils/puneGeocoder';
 
@@ -472,6 +472,28 @@ const Booking = () => {
         return;
       }
       setError('');
+    }
+    if (name === 'weight') {
+      const numWeight = parseFloat(value);
+      let autoTempo = formData.tempoType;
+      // Intelligently auto-select suitable vehicle if entered weight exceeds smaller vehicle limits
+      if (numWeight > 1500 && numWeight <= 5000 && autoTempo !== 'large') {
+        autoTempo = 'large';
+      } else if (numWeight > 750 && numWeight <= 1500 && autoTempo === 'small') {
+        autoTempo = 'medium';
+      }
+      setFormData(prev => ({ ...prev, weight: value, tempoType: autoTempo }));
+      if (error && error.includes('exceeds maximum capacity')) {
+        setError('');
+      }
+      return;
+    }
+    if (name === 'tempoType') {
+      setFormData(prev => ({ ...prev, tempoType: value }));
+      if (error && error.includes('exceeds maximum capacity')) {
+        setError('');
+      }
+      return;
     }
     setFormData(prev => ({ ...prev, [name]: value }));
   };
@@ -1263,18 +1285,49 @@ const Booking = () => {
                         medium: '/images/medium_tempo_asset_1787941129862.jpg',
                         large: '/images/large_truck_asset_1787941142605.jpg'
                       };
+                      const cap = VEHICLE_CAPACITIES?.[type] || (type === 'small' ? 750 : type === 'medium' ? 1500 : 5000);
+                      const enteredWeight = parseFloat(formData.weight) || 0;
+                      const isOverweight = enteredWeight > cap;
+
                       return (
-                        <label key={type} className={`cursor-pointer border rounded-xl p-4 flex flex-col items-center transition-all overflow-hidden relative group ${formData.tempoType === type ? 'border-copper-500 bg-copper-500/10' : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'}`}>
+                        <label 
+                          key={type} 
+                          className={`cursor-pointer border rounded-xl p-4 flex flex-col items-center transition-all overflow-hidden relative group ${
+                            formData.tempoType === type 
+                              ? 'border-copper-500 bg-copper-500/10 shadow-lg shadow-copper-500/10' 
+                              : isOverweight
+                              ? 'border-loft-800/60 bg-loft-950/30 opacity-70 hover:opacity-90'
+                              : 'border-loft-800 bg-loft-950/50 hover:border-loft-600'
+                          }`}
+                        >
                           <input type="radio" name="tempoType" value={type} checked={formData.tempoType === type} onChange={handleChange} className="sr-only" />
                           <div className="w-24 h-24 mb-3 rounded-full overflow-hidden border-2 border-transparent group-hover:border-copper-500 transition-colors">
                             <img src={imgMap[type]} alt={`${type} truck`} className="w-full h-full object-cover scale-110" />
                           </div>
                           <span className="font-bold text-loft-50 capitalize">{type}</span>
-                          <span className="text-xs text-loft-400 text-center">{type === 'small' ? 'Up to 750kg' : type === 'medium' ? 'Up to 1500kg' : 'Up to 3000kg'}</span>
+                          <span className="text-xs text-loft-400 text-center">
+                            {type === 'small' ? 'Up to 750kg' : type === 'medium' ? 'Up to 1500kg' : 'Up to 5000kg'}
+                          </span>
+                          {isOverweight && (
+                            <span className="mt-1 text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 font-medium">
+                              Max {cap}kg
+                            </span>
+                          )}
                         </label>
                       );
                     })}
                   </div>
+
+                  {/* Real-time Weight vs Vehicle Capacity Feedback */}
+                  {parseFloat(formData.weight) > (VEHICLE_CAPACITIES?.[formData.tempoType] || 5000) && (
+                    <div className="mt-3 p-3 bg-red-500/10 border border-red-500/25 rounded-xl flex items-center gap-2 text-xs text-red-400">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>
+                        Cargo weight ({formData.weight}kg) exceeds maximum capacity for {formData.tempoType} vehicle ({VEHICLE_CAPACITIES?.[formData.tempoType] || 5000}kg).
+                        {parseFloat(formData.weight) <= 5000 ? ' Please choose a higher capacity vehicle above.' : ' Maximum capacity across all fleet vehicles is 5000kg (Large Truck).'}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div>

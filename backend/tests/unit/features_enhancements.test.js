@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { register, login, getProfile, updateProfile } = require('../../src/controllers/authController');
 const { createProOrder, verifyProSubscription, getProStatus } = require('../../src/controllers/customerController');
-const { bulkDeleteCustomers, bulkDeleteDrivers, bulkDeleteAdmins } = require('../../src/controllers/adminController');
+const { bulkDeleteCustomers, bulkDeleteDrivers, bulkDeleteAdmins, deleteAdmin } = require('../../src/controllers/adminController');
 const { Customer, Driver, Admin, Wallet, Transaction, Address } = require('../../src/models');
 
 function mockResponse() {
@@ -401,6 +401,102 @@ describe('System Features & Enhancements Suite', () => {
 
       const deletedB = await Admin.findByPk(testAdminB.id);
       expect(deletedB).toBeNull();
+    });
+
+    test('deleteAdmin should prevent deleting primary super admin (admin@eminence.com / isPrimary)', async () => {
+      const primaryAdmin = await Admin.create({
+        name: 'Root Superadmin',
+        email: `primary_root_${Date.now()}_${Math.random().toString(36).substring(7)}@eminence.com`,
+        password: 'Password123!',
+        role: 'Superadmin',
+        isPrimary: true
+      });
+
+      const req = {
+        params: { id: primaryAdmin.id },
+        user: { id: testAdminA.id }
+      };
+      const res = mockResponse();
+
+      await deleteAdmin(req, res);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/primary Super Administrator cannot be deleted/i);
+
+      // Verify not deleted
+      const checkAdmin = await Admin.findByPk(primaryAdmin.id);
+      expect(checkAdmin).not.toBeNull();
+    });
+
+    test('deleteAdmin should prevent newly created or regular admin from deleting a super admin', async () => {
+      const regularAdmin = await Admin.create({
+        name: 'Junior Admin',
+        email: `junior_${Date.now()}_${Math.random().toString(36).substring(7)}@test.com`,
+        password: 'Password123!',
+        role: 'Support Admin',
+        isPrimary: false
+      });
+
+      const targetSuperAdmin = await Admin.create({
+        name: 'Target Super',
+        email: `targetsuper_${Date.now()}_${Math.random().toString(36).substring(7)}@test.com`,
+        password: 'Password123!',
+        role: 'Superadmin',
+        isPrimary: false
+      });
+
+      const req = {
+        params: { id: targetSuperAdmin.id },
+        user: { id: regularAdmin.id }
+      };
+      const res = mockResponse();
+
+      await deleteAdmin(req, res);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/regular administrators cannot delete a Super Admin/i);
+
+      // Verify not deleted
+      const checkAdmin = await Admin.findByPk(targetSuperAdmin.id);
+      expect(checkAdmin).not.toBeNull();
+    });
+
+    test('deleteAdmin should prevent admin from deleting own active account', async () => {
+      const req = {
+        params: { id: testAdminA.id },
+        user: { id: testAdminA.id }
+      };
+      const res = mockResponse();
+
+      await deleteAdmin(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/cannot delete your own active administrator account/i);
+    });
+
+    test('bulkDeleteAdmins should prevent deleting primary super admin in batch', async () => {
+      const primaryAdmin = await Admin.create({
+        name: 'Root Batch Superadmin',
+        email: `primary_batch_root_${Date.now()}_${Math.random().toString(36).substring(7)}@eminence.com`,
+        password: 'Password123!',
+        role: 'Superadmin',
+        isPrimary: true
+      });
+
+      const req = {
+        body: { ids: [primaryAdmin.id] },
+        user: { id: testAdminA.id }
+      };
+      const res = mockResponse();
+
+      await bulkDeleteAdmins(req, res);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/primary Super Administrator cannot be deleted/i);
     });
   });
 });

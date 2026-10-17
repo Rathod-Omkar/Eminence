@@ -99,6 +99,15 @@ const KNOWN_PUNE_LOCATIONS = {
   'bakori road': { lat: 18.5830, lng: 73.9880, name: 'Bakori Road, Wagholi' },
   'bakori': { lat: 18.5830, lng: 73.9880, name: 'Bakori Road, Wagholi' },
 
+  // Key Educational & Suburb Landmarks
+  'delhi public school': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Mohammadwadi, Pune' },
+  'dps pune': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Mohammadwadi, Pune' },
+  'dps': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Pune' },
+  'nyati estate': { lat: 18.4735, lng: 73.9055, name: 'Nyati Estate, Mohammadwadi, Pune' },
+  'krushna nagar': { lat: 18.4740, lng: 73.9060, name: 'Krushna Nagar, Mohammadwadi, Pune' },
+  'shiva heights': { lat: 18.5985, lng: 73.7825, name: 'Shiva Heights, Vishal Nagar, Pimpri-Chinchwad' },
+  'vishal nagar': { lat: 18.5980, lng: 73.7830, name: 'Vishal Nagar, Pimpri-Chinchwad' },
+
   // Key Regional & Intercity Freight Hubs
   'pune': { lat: 18.5204, lng: 73.8567, name: 'Pune, Maharashtra' },
   'mumbai': { lat: 19.0760, lng: 72.8777, name: 'Mumbai, Maharashtra' },

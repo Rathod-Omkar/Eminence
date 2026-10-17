@@ -138,6 +138,12 @@ const bootstrapDatabase = async () => {
           ADD COLUMN IF NOT EXISTS "termsVersion" VARCHAR(255);
       `);
 
+      await sequelize.query(`
+        ALTER TABLE "Admins"
+          ADD COLUMN IF NOT EXISTS "role" VARCHAR(50) DEFAULT 'Support Admin',
+          ADD COLUMN IF NOT EXISTS "isPrimary" BOOLEAN DEFAULT false;
+      `);
+
       // Database-level constraint preventing multiple referral rewards for one customer's wallet
       await sequelize.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS "unique_signup_bonus" ON "Transactions" ("walletId") WHERE description = 'Signup Referral Bonus';
@@ -164,6 +170,8 @@ const bootstrapDatabase = async () => {
       await addSqliteColumn('Bookings', 'expiresAt', 'DATETIME');
       await addSqliteColumn('Bookings', 'cancellationReason', 'VARCHAR(255)');
       await addSqliteColumn('Bookings', 'cancelledBy', 'VARCHAR(50)');
+      await addSqliteColumn('Admins', 'role', "VARCHAR(50) DEFAULT 'Support Admin'");
+      await addSqliteColumn('Admins', 'isPrimary', 'BOOLEAN DEFAULT 0');
     }
   } catch (e) {
     console.warn('Bootstrap database note:', e.message);
@@ -309,11 +317,15 @@ const syncDatabase = async () => {
         await Admin.create({
           name: 'Super Admin',
           email: seedEmail,
-          password: hashedSeedPassword
+          password: hashedSeedPassword,
+          role: 'Superadmin',
+          isPrimary: true
         });
         console.log(`Seeded primary admin: ${seedEmail}`);
       } else {
         admin.password = hashedSeedPassword;
+        admin.role = 'Superadmin';
+        admin.isPrimary = true;
         await admin.save();
       }
     }

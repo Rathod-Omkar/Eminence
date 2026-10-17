@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Search, Loader2, AlertCircle, ShieldCheck, Home } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { matchPuneKnownLocation, extractSearchCandidates } from '../../../utils/puneGeocoder';
+import { matchPuneKnownLocation, extractSearchCandidates, getPunePincode } from '../../../utils/puneGeocoder';
 
 const AutocompleteLocationInput = ({ 
   value, 
@@ -114,12 +114,14 @@ const AutocompleteLocationInput = ({
               }
             ];
 
-            // Proactively bind coordinates to parent state so map immediately routes to the location
+            // Proactively bind coordinates and postal code to parent state so map immediately routes to the location
             if (onSelectDetails) {
+              const postalCode = getPunePincode(query, matchedRef);
               onSelectDetails({
                 lat: matchedRef.lat,
                 lng: matchedRef.lng,
                 display_name: query,
+                postalCode: postalCode || undefined,
                 is_estimated: true
               });
             }
@@ -149,10 +151,13 @@ const AutocompleteLocationInput = ({
     setIsOpen(false);
     onChange(textToKeep);
     if (onSelectDetails) {
+      const postalCode = getPunePincode(textToKeep, location);
       onSelectDetails({
         lat: parseFloat(location.lat),
         lng: parseFloat(location.lon),
         display_name: textToKeep,
+        postalCode: postalCode || undefined,
+        address: location.address || {},
         raw: location
       });
     }
@@ -164,13 +169,15 @@ const AutocompleteLocationInput = ({
     onChange(val); // Always keep parent in sync with raw typed value
     if (val.length > 2) setIsOpen(true);
 
-    // Auto-resolve coordinates for raw home address in background if it contains a known Pune landmark or road
+    // Auto-resolve coordinates & postalCode for raw home address in background if it contains a known Pune landmark, road or pincode
     const quickMatch = matchPuneKnownLocation(val);
-    if (quickMatch && onSelectDetails) {
+    const postalCode = getPunePincode(val, quickMatch);
+    if (onSelectDetails && (quickMatch || postalCode)) {
       onSelectDetails({
-        lat: quickMatch.lat,
-        lng: quickMatch.lng,
+        lat: quickMatch?.lat,
+        lng: quickMatch?.lng,
         display_name: val,
+        postalCode: postalCode || undefined,
         is_estimated: true
       });
     }

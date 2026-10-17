@@ -898,11 +898,21 @@ const deletePromoCode = async (req, res) => {
 // --- ADMIN USERS CRUD ---
 const getAdmins = async (req, res) => {
   try {
+    const primaryEmail = (process.env.SEED_EMAIL || 'admin@eminence.com').toLowerCase();
     const admins = await Admin.findAll({
       attributes: { exclude: ['password'] },
       order: [['createdAt', 'DESC']]
     });
-    res.status(200).json({ success: true, admins });
+    const mapped = admins.map(a => {
+      const data = a.toJSON ? a.toJSON() : { ...a };
+      const isPrimary = Boolean(data.isPrimary || (data.email && data.email.toLowerCase() === primaryEmail));
+      return {
+        ...data,
+        isPrimary,
+        role: isPrimary ? 'Superadmin' : (data.role || 'Support Admin')
+      };
+    });
+    res.status(200).json({ success: true, admins: mapped });
   } catch (error) {
     console.error('Error fetching admins:', error);
     res.status(500).json({ success: false, message: error.message || 'Server error' });
@@ -911,7 +921,7 @@ const getAdmins = async (req, res) => {
 
 const createAdmin = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
@@ -921,13 +931,19 @@ const createAdmin = async (req, res) => {
     }
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
+    const allowedRoles = ['Superadmin', 'Finance Admin', 'Support Admin'];
+    const assignedRole = allowedRoles.includes(role) ? role : 'Support Admin';
+
     const admin = await Admin.create({
       name: name || 'Administrator',
       email,
-      password: hashedPassword
+      password: hashedPassword,
+      role: assignedRole,
+      isPrimary: false
     });
     const adminResponse = admin.toJSON();
     delete adminResponse.password;
+    adminResponse.isPrimary = false;
     res.status(201).json({ success: true, admin: adminResponse });
   } catch (error) {
     console.error('Error creating admin:', error);
@@ -938,13 +954,20 @@ const createAdmin = async (req, res) => {
 const updateAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
     const admin = await Admin.findByPk(id);
     if (!admin) {
       return res.status(404).json({ success: false, message: 'Admin not found' });
     }
+    const primaryEmail = (process.env.SEED_EMAIL || 'admin@eminence.com').toLowerCase();
+    const isTargetPrimary = Boolean(admin.isPrimary || (admin.email && admin.email.toLowerCase() === primaryEmail));
+
     if (name) admin.name = name;
-    if (email) admin.email = email;
+    if (email && !isTargetPrimary) admin.email = email;
+    if (role && !isTargetPrimary) {
+      const allowedRoles = ['Superadmin', 'Finance Admin', 'Support Admin'];
+      if (allowedRoles.includes(role)) admin.role = role;
+    }
     if (password) {
       const salt = await bcrypt.genSalt(10);
       admin.password = await bcrypt.hash(password, salt);
@@ -952,6 +975,7 @@ const updateAdmin = async (req, res) => {
     await admin.save();
     const adminResponse = admin.toJSON();
     delete adminResponse.password;
+    adminResponse.isPrimary = isTargetPrimary;
     res.status(200).json({ success: true, admin: adminResponse });
   } catch (error) {
     console.error('Error updating admin:', error);
@@ -966,10 +990,53 @@ const deleteAdmin = async (req, res) => {
     if (adminCount <= 1) {
       return res.status(400).json({ success: false, message: 'Cannot delete the only existing administrator' });
     }
+
+    // Prevent self-deletion
+    if (req.user?.id && req.user.id === id) {
+      return res.status(400).json({ success: false, message: 'You cannot delete your own active administrator account' });
+    }
+
     const admin = await Admin.findByPk(id);
     if (!admin) {
       return res.status(404).json({ success: false, message: 'Admin not found' });
     }
+
+    const primaryEmail = (process.env.SEED_EMAIL || 'admin@eminence.com').toLowerCase();
+    const isTargetPrimary = Boolean(admin.isPrimary || (admin.email && admin.email.toLowerCase() === primaryEmail));
+
+    // CRITICAL: Prevent deleting primary super admin under any circumstance
+    if (isTargetPrimary) {
+      return res.status(403).json({
+        success: false,
+        message: 'The primary Super Administrator cannot be deleted'
+      });
+    }
+
+    // Role hierarchy verification:
+    let callerAdmin = null;
+    if (req.user?.id) {
+      callerAdmin = await Admin.findByPk(req.user.id);
+    }
+    const isCallerPrimary = Boolean(callerAdmin?.isPrimary || (callerAdmin?.email && callerAdmin.email.toLowerCase() === primaryEmail));
+    const callerRole = callerAdmin?.role || (isCallerPrimary ? 'Superadmin' : (req.user?.adminRole || 'Superadmin'));
+    const targetRole = admin.role || (isTargetPrimary ? 'Superadmin' : 'Support Admin');
+
+    // Newly created and regular admins cannot delete Superadmins
+    if (targetRole === 'Superadmin' && callerRole !== 'Superadmin' && !isCallerPrimary) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Newly created and regular administrators cannot delete a Super Admin'
+      });
+    }
+
+    // Only Superadmins can delete administrators
+    if (callerRole !== 'Superadmin' && !isCallerPrimary) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Only Superadmins can delete administrator accounts'
+      });
+    }
+
     await admin.destroy();
     res.status(200).json({ success: true, message: 'Admin deleted successfully' });
   } catch (error) {
@@ -989,10 +1056,53 @@ const bulkDeleteAdmins = async (req, res) => {
     if (currentAdminId && ids.includes(currentAdminId)) {
       return res.status(400).json({ success: false, message: 'You cannot delete your own active administrator account' });
     }
+
+    const primaryEmail = (process.env.SEED_EMAIL || 'admin@eminence.com').toLowerCase();
+
+    // Check caller permissions
+    let callerAdmin = null;
+    if (currentAdminId) {
+      callerAdmin = await Admin.findByPk(currentAdminId);
+    }
+    const isCallerPrimary = Boolean(callerAdmin?.isPrimary || (callerAdmin?.email && callerAdmin.email.toLowerCase() === primaryEmail));
+    const callerRole = callerAdmin?.role || (isCallerPrimary ? 'Superadmin' : (req.user?.adminRole || 'Superadmin'));
+
+    // Check targets
+    const targets = await Admin.findAll({
+      where: { id: { [Op.in]: ids } }
+    });
+
+    const hasPrimaryTarget = targets.some(
+      t => t.isPrimary || (t.email && t.email.toLowerCase() === primaryEmail)
+    );
+    if (hasPrimaryTarget) {
+      return res.status(403).json({
+        success: false,
+        message: 'The primary Super Administrator cannot be deleted'
+      });
+    }
+
+    // Newly created / regular admins cannot delete Superadmins
+    const hasSuperadminTarget = targets.some(t => t.role === 'Superadmin');
+    if (hasSuperadminTarget && callerRole !== 'Superadmin' && !isCallerPrimary) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Newly created and regular administrators cannot delete a Super Admin'
+      });
+    }
+
+    if (callerRole !== 'Superadmin' && !isCallerPrimary) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied: Only Superadmins can delete administrator accounts'
+      });
+    }
+
     const totalAdmins = await Admin.count();
     if (totalAdmins - ids.length < 1) {
       return res.status(400).json({ success: false, message: 'Operation aborted: at least one administrator must remain active' });
     }
+
     const deletedCount = await Admin.destroy({
       where: {
         id: { [Op.in]: ids }

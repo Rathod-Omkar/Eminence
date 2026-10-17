@@ -1,7 +1,7 @@
 const admin = require('../config/firebaseAdmin');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { Customer, Otp, UserConsent, Driver } = require('../models');
+const { Customer, Otp, UserConsent, Driver, Booking } = require('../models');
 const { sendEmail } = require('../services/emailService');
 const smsService = require('../services/smsService');
 
@@ -335,6 +335,19 @@ const getProfile = async (req, res) => {
     const safeUser = user.toJSON ? user.toJSON() : { ...user };
     delete safeUser.password;
     safeUser.role = userRole;
+
+    if (userRole !== 'driver' && userRole !== 'admin') {
+      const completedCount = await Booking.count({
+        where: { customerId: user.id, status: 'completed' }
+      }).catch(() => 0);
+      const resolvedTrips = Math.max(user.totalTrips || 0, completedCount);
+      if (user.totalTrips !== resolvedTrips) {
+        user.totalTrips = resolvedTrips;
+        await user.save().catch(() => {});
+      }
+      safeUser.totalTrips = resolvedTrips;
+    }
+
     if (userRole === 'driver' || userRole === 'admin') {
       safeUser.isProfileComplete = true;
     }

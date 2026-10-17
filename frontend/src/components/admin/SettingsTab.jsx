@@ -39,21 +39,26 @@ const SettingsTab = () => {
     fetchAdmins();
   }, []);
 
+  const isCurrentUserPrimary = Boolean(user?.isPrimary || user?.email?.toLowerCase() === 'admin@eminence.com');
+  const currentUserRole = user?.adminRole || (isCurrentUserPrimary ? 'Superadmin' : 'Support Admin');
+  const canManageAdmins = isCurrentUserPrimary || currentUserRole === 'Superadmin';
+
   const handleOpenCreateModal = () => {
     setEditMode(false);
     setCurrentItem(null);
-    setAdminForm({ name: '', email: '', password: '', role: 'Superadmin' });
+    setAdminForm({ name: '', email: '', password: '', role: canManageAdmins ? 'Support Admin' : 'Support Admin' });
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (admin) => {
     setEditMode(true);
     setCurrentItem(admin);
+    const isTargetPrimary = Boolean(admin.isPrimary || admin.email?.toLowerCase() === 'admin@eminence.com');
     setAdminForm({
       name: admin.name || '',
       email: admin.email || '',
       password: '',
-      role: 'Superadmin'
+      role: isTargetPrimary ? 'Superadmin' : (admin.role || 'Support Admin')
     });
     setIsModalOpen(true);
   };
@@ -67,7 +72,23 @@ const SettingsTab = () => {
       alert('You cannot delete your own active administrator account');
       return;
     }
-    if (!window.confirm('Are you sure you want to delete this administrator?')) return;
+    const target = admins.find(a => a.id === id);
+    const isTargetPrimary = Boolean(target?.isPrimary || target?.email?.toLowerCase() === 'admin@eminence.com');
+    if (isTargetPrimary) {
+      alert('The primary Super Administrator cannot be deleted');
+      return;
+    }
+    const targetIsSuper = target?.role === 'Superadmin' || isTargetPrimary;
+    if (!canManageAdmins) {
+      alert('Permission denied: Only Superadmins can delete administrator accounts');
+      return;
+    }
+    if (targetIsSuper && !isCurrentUserPrimary) {
+      alert('Permission denied: Only the primary Super Administrator can delete Superadmin accounts');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete administrator ${target?.name || target?.email || ''}?`)) return;
     try {
       const res = await adminApi.deleteAdmin(id);
       if (res.data?.success) {
@@ -80,8 +101,15 @@ const SettingsTab = () => {
   };
 
   // Mass Bulk Selection Handlers
-  // Exclude current admin from deletable set
-  const deletableAdmins = admins.filter(a => a.id !== user?.id);
+  // Exclude self, primary superadmin, and protected superadmins from deletable set
+  const deletableAdmins = admins.filter(a => {
+    const isSelf = user?.id === a.id;
+    const isTargetPrimary = Boolean(a.isPrimary || a.email?.toLowerCase() === 'admin@eminence.com');
+    const targetIsSuper = a.role === 'Superadmin' || isTargetPrimary;
+    if (isSelf || isTargetPrimary || !canManageAdmins) return false;
+    if (targetIsSuper && !isCurrentUserPrimary) return false;
+    return true;
+  });
   const isAllSelected = deletableAdmins.length > 0 && selectedIds.size === deletableAdmins.length;
 
   const toggleSelectAll = () => {
@@ -94,6 +122,13 @@ const SettingsTab = () => {
 
   const toggleSelectOne = (id) => {
     if (id === user?.id) return; // Prevent selecting self
+    const target = admins.find(a => a.id === id);
+    const isTargetPrimary = Boolean(target?.isPrimary || target?.email?.toLowerCase() === 'admin@eminence.com');
+    if (isTargetPrimary) return;
+    const targetIsSuper = target?.role === 'Superadmin' || isTargetPrimary;
+    if (targetIsSuper && !isCurrentUserPrimary) return;
+    if (!canManageAdmins) return;
+
     const updated = new Set(selectedIds);
     if (updated.has(id)) {
       updated.delete(id);
@@ -207,7 +242,10 @@ const SettingsTab = () => {
                 ) : (
                   admins.map((admin) => {
                     const isSelf = user?.id === admin.id;
+                    const isTargetPrimary = Boolean(admin.isPrimary || admin.email?.toLowerCase() === 'admin@eminence.com');
+                    const targetIsSuper = admin.role === 'Superadmin' || isTargetPrimary;
                     const isSelected = selectedIds.has(admin.id);
+                    const canDeleteThisAdmin = !isSelf && !isTargetPrimary && admins.length > 1 && canManageAdmins && (!targetIsSuper || isCurrentUserPrimary);
                     return (
                       <tr 
                         key={admin.id} 
@@ -218,10 +256,20 @@ const SettingsTab = () => {
                             type="checkbox"
                             aria-label={`Select ${admin.name || admin.email}`}
                             checked={isSelected}
-                            disabled={isSelf || admins.length <= 1}
+                            disabled={!canDeleteThisAdmin}
                             onChange={() => toggleSelectOne(admin.id)}
                             className="w-4 h-4 rounded border-loft-700 bg-loft-950 text-copper-500 focus:ring-copper-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                            title={isSelf ? "You cannot delete your own account" : undefined}
+                            title={
+                              isTargetPrimary
+                                ? "The primary Super Administrator cannot be deleted"
+                                : isSelf
+                                  ? "You cannot delete your own account"
+                                  : targetIsSuper && !isCurrentUserPrimary
+                                    ? "Only the primary Super Administrator can delete Superadmin accounts"
+                                    : !canManageAdmins
+                                      ? "Only Superadmins can delete administrator accounts"
+                                      : undefined
+                            }
                           />
                         </td>
                         <td className="px-6 py-4 font-medium text-loft-100 flex items-center gap-3">
@@ -231,17 +279,30 @@ const SettingsTab = () => {
                           <div className="flex items-center gap-2">
                             <span>{admin.name || 'Administrator'}</span>
                             {isSelf && (
-                              <span className="text-[10px] bg-copper-500/20 text-copper-400 px-1.5 py-0.5 rounded font-mono">
+                              <span className="text-[10px] bg-copper-500/20 text-copper-400 px-1.5 py-0.5 rounded font-mono font-semibold">
                                 YOU
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4">{admin.email}</td>
+                        <td className="px-6 py-4 font-mono text-xs">{admin.email}</td>
                         <td className="px-6 py-4">
-                          <span className="inline-block whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold bg-moss-500/20 text-moss-500 border border-moss-500/30">
-                            Superadmin
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold border ${
+                              targetIsSuper
+                                ? 'bg-moss-500/20 text-moss-500 border-moss-500/30'
+                                : admin.role === 'Finance Admin'
+                                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                  : 'bg-copper-500/20 text-copper-400 border-copper-500/30'
+                            }`}>
+                              {isTargetPrimary ? 'Superadmin' : (admin.role || 'Support Admin')}
+                            </span>
+                            {isTargetPrimary && (
+                              <span className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono font-bold" title="Protected System Root Superadmin">
+                                ROOT
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           {admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : 'Active'}
@@ -256,9 +317,25 @@ const SettingsTab = () => {
                           </button>
                           <button 
                             onClick={() => handleDeleteAdmin(admin.id)}
-                            className="p-2 text-loft-400 hover:text-red-500 rounded-lg hover:bg-loft-800 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                            disabled={admins.length <= 1 || isSelf}
-                            title={isSelf ? "Cannot delete your own account" : (admins.length <= 1 ? "Cannot delete the sole admin" : "Delete Admin")}
+                            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                              canDeleteThisAdmin
+                                ? 'text-loft-400 hover:text-red-500 hover:bg-loft-800'
+                                : 'text-loft-600 opacity-20 cursor-not-allowed'
+                            }`}
+                            disabled={!canDeleteThisAdmin}
+                            title={
+                              isTargetPrimary 
+                                ? "The primary Super Administrator cannot be deleted" 
+                                : isSelf 
+                                  ? "Cannot delete your own account" 
+                                  : targetIsSuper && !isCurrentUserPrimary 
+                                    ? "Only the primary Super Administrator can delete Superadmin accounts" 
+                                    : !canManageAdmins
+                                      ? "Only Superadmins can delete administrator accounts"
+                                      : admins.length <= 1 
+                                        ? "Cannot delete the sole admin" 
+                                        : "Delete Admin"
+                            }
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -329,6 +406,24 @@ const SettingsTab = () => {
                   required={!editMode}
                   onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-loft-300 uppercase tracking-wider mb-2">Role</label>
+                <select 
+                  className="input-field cursor-pointer bg-loft-950" 
+                  value={adminForm.role}
+                  disabled={editMode && (currentItem?.isPrimary || currentItem?.email?.toLowerCase() === 'admin@eminence.com')}
+                  onChange={(e) => setAdminForm({ ...adminForm, role: e.target.value })}
+                >
+                  {(isCurrentUserPrimary || canManageAdmins) && (
+                    <option value="Superadmin">Superadmin</option>
+                  )}
+                  <option value="Finance Admin">Finance Admin</option>
+                  <option value="Support Admin">Support Admin</option>
+                </select>
+                {editMode && (currentItem?.isPrimary || currentItem?.email?.toLowerCase() === 'admin@eminence.com') && (
+                  <p className="text-[11px] text-amber-400 mt-1">The primary Root Superadmin role cannot be modified.</p>
+                )}
               </div>
               <div className="pt-4 flex justify-end gap-3 border-t border-loft-800 shrink-0">
                 <button

@@ -106,12 +106,22 @@ const Tracking = () => {
           
           // Re-fetch latest telemetry state (Speed, Location) upon load or reconnection
           const updatedSpeed = data.status === 'in_transit' ? 44 : (data.status === 'driver_assigned' ? 28 : 0);
-          const updatedLat = data.currentLat || PUNE_POSITION[0];
-          const updatedLng = data.currentLng || PUNE_POSITION[1];
+          const driverLat = data.driver?.currentLat || data.currentLat;
+          const driverLng = data.driver?.currentLng || data.currentLng;
+          
+          let initialLat = driverLat || PUNE_POSITION[0];
+          let initialLng = driverLng || PUNE_POSITION[1];
+
+          // If driver arrived at pickup, anchor position directly at pickup
+          if (data.status === 'arrived' && data.pickupLat && data.pickupLng) {
+            initialLat = Number(data.pickupLat);
+            initialLng = Number(data.pickupLng);
+          }
+
           setTelemetry({
-            speed: updatedSpeed,
-            lat: updatedLat,
-            lng: updatedLng,
+            speed: data.status === 'arrived' ? 0 : updatedSpeed,
+            lat: initialLat,
+            lng: initialLng,
             lastSynced: new Date().toLocaleTimeString(),
           });
         }
@@ -249,33 +259,50 @@ const Tracking = () => {
       setIsRoutingLoading(true);
 
       try {
-        const pCoord = await geocodeAddress(pickupAddress);
+        // 1. Resolve Pickup Coordinates: prioritize booking.pickupLat/Lng if provided
+        let pCoord = null;
+        if (booking?.pickupLat && booking?.pickupLng) {
+          pCoord = { lat: Number(booking.pickupLat), lng: Number(booking.pickupLng) };
+        } else {
+          pCoord = await geocodeAddress(pickupAddress);
+        }
         if (isCancelled) return;
         if (pCoord) setPickupCoord(pCoord);
 
-        let dCoord = null;
-        if (dropAddress) {
-          dCoord = await geocodeAddress(dropAddress);
-          if (isCancelled) return;
-          if (dCoord) setDropCoord(dCoord);
-        }
-
-        const resolvedStops = [];
+        // 2. Resolve Stops Coordinates
+        let resolvedStops = [];
         if (stops) {
           try {
             const rawStops = Array.isArray(booking.stops) 
               ? booking.stops 
               : (typeof booking.stops === 'string' ? JSON.parse(booking.stops) : []);
             for (const s of rawStops) {
-              const addr = typeof s === 'string' ? s : s?.address;
-              if (addr) {
-                const sc = await geocodeAddress(addr);
-                if (sc) resolvedStops.push(sc);
+              if (s?.lat && s?.lng) {
+                resolvedStops.push({ lat: Number(s.lat), lng: Number(s.lng) });
+              } else {
+                const addr = typeof s === 'string' ? s : s?.address;
+                if (addr) {
+                  const sc = await geocodeAddress(addr);
+                  if (sc) resolvedStops.push(sc);
+                }
               }
             }
           } catch (_e) {}
         }
+
+        // 3. Resolve Drop Coordinates: prioritize booking.dropLat/Lng or last waypoint
+        let dCoord = null;
+        if (booking?.dropLat && booking?.dropLng) {
+          dCoord = { lat: Number(booking.dropLat), lng: Number(booking.dropLng) };
+        } else if (resolvedStops.length > 0 && Array.isArray(booking?.stops) && booking.stops.length > 0) {
+          dCoord = resolvedStops[resolvedStops.length - 1];
+          resolvedStops = resolvedStops.slice(0, -1);
+        } else if (dropAddress) {
+          dCoord = await geocodeAddress(dropAddress);
+        }
+
         if (isCancelled) return;
+        if (dCoord) setDropCoord(dCoord);
         setStopsCoords(resolvedStops);
 
         if (pCoord && dCoord) {
@@ -296,7 +323,20 @@ const Tracking = () => {
     return () => {
       isCancelled = true;
     };
-  }, [booking?.pickupAddress, booking?.dropAddress, booking?.stops]);
+  }, [booking?.pickupAddress, booking?.dropAddress, booking?.stops, booking?.pickupLat, booking?.pickupLng, booking?.dropLat, booking?.dropLng]);
+
+  // When driver arrives at pickup, lock telemetry vehicle position directly to pickup coordinate
+  useEffect(() => {
+    if (status === 'arrived' && pickupCoord) {
+      setTelemetry(prev => ({
+        ...prev,
+        lat: pickupCoord.lat,
+        lng: pickupCoord.lng,
+        speed: 0,
+        lastSynced: new Date().toLocaleTimeString(),
+      }));
+    }
+  }, [status, pickupCoord]);
 
   const handleCancelBooking = async () => {
     const id = effectiveBookingId || bookingId || booking?.id;
@@ -581,7 +621,9 @@ const Tracking = () => {
             <div className="p-2 bg-loft-950/80 rounded-lg border border-loft-800 text-center">
               <span className="text-[10px] text-loft-400 block mb-0.5">Est. Distance</span>
               <span className="text-sm font-mono font-bold text-copper-300">
-                {routeData?.distanceKm ? `${routeData.distanceKm} km` : (booking?.totalDistance ? `${booking.totalDistance} km` : '16.5 km')}
+                {status === 'arrived' 
+                  ? 'At Pickup' 
+                  : (routeData?.distanceKm ? `${routeData.distanceKm} km` : (booking?.totalDistance ? `${booking.totalDistance} km` : '16.5 km'))}
               </span>
             </div>
             <div className="p-2 bg-loft-950/80 rounded-lg border border-loft-800 text-center">

@@ -1055,7 +1055,7 @@ export default function BookScreen() {
               <Text style={styles.tempoIcon}>🛺</Text>
               <Text style={styles.tempoName}>Small</Text>
               <Text style={styles.tempoModel}>Tata Ace</Text>
-              <Text style={styles.tempoWeight}>Max 500kg</Text>
+              <Text style={styles.tempoWeight}>Max 750kg</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1065,7 +1065,7 @@ export default function BookScreen() {
               <Text style={styles.tempoIcon}>🚐</Text>
               <Text style={styles.tempoName}>Medium</Text>
               <Text style={styles.tempoModel}>Bolero Pickup</Text>
-              <Text style={styles.tempoWeight}>Max 1,200kg</Text>
+              <Text style={styles.tempoWeight}>Max 1,500kg</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1075,7 +1075,7 @@ export default function BookScreen() {
               <Text style={styles.tempoIcon}>🚛</Text>
               <Text style={styles.tempoName}>Large</Text>
               <Text style={styles.tempoModel}>14ft Truck</Text>
-              <Text style={styles.tempoWeight}>Max 2,500kg</Text>
+              <Text style={styles.tempoWeight}>Max 5,000kg</Text>
             </TouchableOpacity>
           </View>
         </View>

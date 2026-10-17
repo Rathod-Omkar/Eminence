@@ -204,8 +204,18 @@ const DriverDashboard = () => {
     }
   };
 
-  const handleArrivePickup = async () => {
+  const handleArrivePickup = async (arrivalPos) => {
     if (!activeRide) return;
+    if (arrivalPos?.lat && arrivalPos?.lng) {
+      setDriverPos(arrivalPos);
+      if (socketRef.current && activeRide.bookingId) {
+        socketRef.current.emit('driver:location_update', {
+          bookingId: activeRide.bookingId,
+          lat: arrivalPos.lat,
+          lng: arrivalPos.lng,
+        });
+      }
+    }
     if (activeRide.bookingId?.startsWith('demo-sim-')) {
       setActiveRide(prev => ({ ...prev, status: 'arrived' }));
       return;

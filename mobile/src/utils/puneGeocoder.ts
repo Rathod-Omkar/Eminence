@@ -112,6 +112,13 @@ export const KNOWN_PUNE_LOCATIONS: Record<string, { lat: number; lng: number; na
   'mundhwa': { lat: 18.5300, lng: 73.9250, name: 'Mundhwa, Pune' },
   'alandi': { lat: 18.6775, lng: 73.8967, name: 'Alandi Devachi, Pune' },
   'sinhagad': { lat: 18.4485, lng: 73.8262, name: 'Sinhagad Road / Vadgaon Khurd' },
+  'delhi public school': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Mohammadwadi, Pune' },
+  'dps pune': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Mohammadwadi, Pune' },
+  'dps': { lat: 18.4727, lng: 73.9048, name: 'Delhi Public School (DPS), Nyati Estate Road, Pune' },
+  'nyati estate': { lat: 18.4735, lng: 73.9055, name: 'Nyati Estate, Mohammadwadi, Pune' },
+  'krushna nagar': { lat: 18.4740, lng: 73.9060, name: 'Krushna Nagar, Mohammadwadi, Pune' },
+  'shiva heights': { lat: 18.5985, lng: 73.7825, name: 'Shiva Heights, Vishal Nagar, Pimpri-Chinchwad' },
+  'vishal nagar': { lat: 18.5980, lng: 73.7830, name: 'Vishal Nagar, Pimpri-Chinchwad' },
   'pune': { lat: 18.5204, lng: 73.8567, name: 'Pune Central, Maharashtra' },
 };
 

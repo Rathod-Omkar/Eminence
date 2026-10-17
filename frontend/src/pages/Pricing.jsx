@@ -46,11 +46,11 @@ const Pricing = () => {
       popular: false
     },
     {
-      name: "4 Ton",
-      desc: "Extra Large Capacity",
+      name: "5 Ton",
+      desc: "Max Large Fleet Capacity",
       tempoType: "large",
-      weight: "Up to 4000 kg",
-      numericWeight: "4000",
+      weight: "Up to 5000 kg",
+      numericWeight: "5000",
       price: "₹1200",
       perTon: "₹30/ton",
       features: ["Heavy industrial transport", "Large materials", "Verified Driver", "Live Tracking"],

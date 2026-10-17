@@ -6,7 +6,7 @@ import {
 import { io } from 'socket.io-client';
 import api from '../../services/api';
 
-const API_BASE_URL = api.defaults.baseURL;
+const API_BASE_URL = api?.defaults?.baseURL || '';
 
 const CustomerSupportTab = ({ user, token }) => {
   const [tickets, setTickets] = useState([]);

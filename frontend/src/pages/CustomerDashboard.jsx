@@ -14,6 +14,8 @@ import ReviewModal from '../components/Customer/ReviewModal';
 import CustomerSupportTab from '../components/Customer/CustomerSupportTab';
 import { addressSchema, profileSchema } from '../utils/formSchemas';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
+import TripDetailsModal from '../components/Customer/TripDetailsModal';
+import { getPunePincode } from '../utils/puneGeocoder';
 
 const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) => {
   const { user } = useSelector((state) => state.auth);
@@ -178,7 +180,10 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
     };
   }, []);
   const isPro = Boolean(user?.isPro);
-  const totalTrips = user?.totalTrips ?? 0;
+  const totalTrips = Math.max(
+    bookings.filter(b => b.status === 'completed').length,
+    user?.totalTrips || 0
+  );
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewTrip, setReviewTrip] = useState(null);
@@ -192,7 +197,7 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
   });
   const [addressFormError, setAddressFormError] = useState('');
   const [isSavingAddress, setIsSavingAddress] = useState(false);
-  const [newAddress, setNewAddress] = useState({ label: '', street: '', city: 'Pune', postalCode: '411001' });
+  const [newAddress, setNewAddress] = useState({ label: '', street: '', city: 'Pune', postalCode: '' });
 
   // Wallet State with explicit request tracking
   const [_walletState, setWalletState] = useState({
@@ -388,17 +393,23 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
 
   const handleSaveAddress = async () => {
     setAddressFormError('');
-    const validation = addressSchema.safeParse(newAddress);
+    const resolvedPostal = newAddress.postalCode || getPunePincode(newAddress.street) || '411001';
+    const addressToSave = {
+      ...newAddress,
+      city: 'Pune',
+      postalCode: resolvedPostal
+    };
+    const validation = addressSchema.safeParse(addressToSave);
     if (!validation.success) {
       setAddressFormError(validation.error.issues[0]?.message || 'Please verify address fields');
       return;
     }
     setIsSavingAddress(true);
     try {
-      const res = await api.post('/api/address', newAddress);
+      const res = await api.post('/api/address', addressToSave);
       setAddressState(prev => ({ ...prev, data: [...(prev.data || []), res.data] }));
       setIsAddAddressOpen(false);
-      setNewAddress({ label: '', street: '', city: 'Pune', postalCode: '411001' });
+      setNewAddress({ label: '', street: '', city: 'Pune', postalCode: '' });
     } catch (error) {
       console.error('Error saving address:', error);
       setAddressFormError(error.response?.data?.message || 'Failed to save address.');
@@ -903,7 +914,13 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h3 className="text-lg font-bold text-loft-50 flex items-center gap-2"><Target className="w-5 h-5 text-moss-500"/> Current Milestone</h3>
-                      <p className="text-loft-400 text-sm">Complete 10 rides to unlock <strong className="text-moss-400">₹500 Wallet Cash</strong></p>
+                      <p className="text-loft-400 text-sm">
+                        {totalTrips >= 10 ? (
+                          <span>Completed 10 rides! <strong className="text-moss-400">₹500 Reward Unlocked</strong></span>
+                        ) : (
+                          <span>Complete 10 rides to unlock <strong className="text-moss-400">₹500 Wallet Cash</strong></span>
+                        )}
+                      </p>
                     </div>
                     <div className="w-10 h-10 bg-moss-500/10 rounded-full flex items-center justify-center border border-moss-500/30">
                       <Star className="w-5 h-5 text-moss-500"/>
@@ -912,18 +929,23 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                   
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs font-bold text-loft-300">
-                      <span>{totalTrips} Rides</span>
+                      <span>{totalTrips} {totalTrips === 1 ? 'Ride' : 'Rides'}</span>
                       <span>10 Rides</span>
                     </div>
                     <div className="w-full bg-loft-950 rounded-full h-3 overflow-hidden border border-loft-800">
                       <div 
                         className="bg-gradient-to-r from-moss-600 to-moss-400 h-3 rounded-full transition-all duration-1000 relative"
-                        style={{ width: `${(totalTrips / 10) * 100}%` }}
+                        style={{ width: `${Math.min(100, Math.max(0, (totalTrips / 10) * 100))}%` }}
                       >
                         <div className="absolute top-0 right-0 bottom-0 left-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30"></div>
                       </div>
                     </div>
-                    <p className="text-xs text-right text-moss-500 mt-1">{10 - totalTrips} rides remaining!</p>
+                    <p className="text-xs text-right text-moss-500 mt-1">
+                      {totalTrips >= 10 
+                        ? '🎉 Milestone Achieved! ₹500 Wallet Cash Credited'
+                        : `${10 - totalTrips} ${(10 - totalTrips) === 1 ? 'ride' : 'rides'} remaining!`
+                      }
+                    </p>
                   </div>
                 </div>
 
@@ -2091,14 +2113,21 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                   <label className="block text-sm font-medium text-loft-200 mb-1">Street Address</label>
                   <AutocompleteLocationInput 
                     value={newAddress.street}
-                    onChange={(val) => setNewAddress(prev => ({ ...prev, street: val }))}
+                    onChange={(val) => {
+                      const detected = getPunePincode(val);
+                      setNewAddress(prev => ({
+                        ...prev,
+                        street: val,
+                        ...(detected ? { postalCode: detected } : {})
+                      }));
+                    }}
                     onSelectDetails={(loc) => {
-                      const addr = loc.address || {};
-                      const detectedPostal = addr.postcode ? addr.postcode.replace(/\D/g, '').slice(0, 6) : '';
+                      const detected = loc.postalCode || 
+                                       getPunePincode(loc.display_name || loc.raw?.display_name || newAddress.street, loc.raw || loc);
                       setNewAddress(prev => ({
                         ...prev,
                         city: 'Pune',
-                        postalCode: detectedPostal && detectedPostal.length === 6 ? detectedPostal : (prev.postalCode || '411001')
+                        postalCode: detected || prev.postalCode || '411001'
                       }));
                     }}
                     placeholder="Search area, landmark or street in Pune"
@@ -2113,8 +2142,23 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                     <input type="text" className="input-field bg-loft-900/60 cursor-not-allowed" readOnly placeholder="Pune" value={newAddress.city} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-loft-200 mb-1">Postal Code</label>
-                    <input type="text" className="input-field" placeholder="411001" value={newAddress.postalCode} onChange={(e) => setNewAddress({...newAddress, postalCode: e.target.value})} />
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-loft-200">Postal Code</label>
+                      {newAddress.postalCode && (
+                        <span className="text-[11px] text-copper-400 font-mono">Auto-detected</span>
+                      )}
+                    </div>
+                    <input 
+                      type="text" 
+                      maxLength={6}
+                      className="input-field font-mono" 
+                      placeholder="e.g. 411038" 
+                      value={newAddress.postalCode} 
+                      onChange={(e) => {
+                        const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 6);
+                        setNewAddress(prev => ({ ...prev, postalCode: numericOnly }));
+                      }} 
+                    />
                   </div>
                 </div>
               </div>
@@ -2199,110 +2243,16 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
         )}
       </AnimatePresence>
 
-      {/* Trip Details Modal */}
+      {/* Trip Details Modal (Interactive Mini Route Map, Live Driver & Consignment Details) */}
+      <TripDetailsModal
+        trip={selectedTrip}
+        isOpen={Boolean(selectedTrip)}
+        onClose={() => setSelectedTrip(null)}
+        onCancelBooking={(trip) => setCancelModalBooking(trip)}
+      />
+
+      {/* Add Funds to Wallet Modal */}
       <AnimatePresence>
-        {selectedTrip && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-loft-950/80 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="card w-full max-w-lg p-0 overflow-hidden"
-            >
-              {/* Mock Map Area */}
-              <div className="h-48 bg-loft-800 relative w-full overflow-hidden flex items-center justify-center">
-                <div className="absolute inset-0 opacity-30 bg-[url('https://www.transparenttextures.com/patterns/cartographer.png')]"></div>
-                <div className="text-center z-10">
-                  <MapPin className="w-8 h-8 text-copper-500 mx-auto mb-2 drop-shadow-lg" />
-                  <span className="text-copper-400 font-bold bg-loft-950/80 px-3 py-1 rounded-full border border-copper-500/30">Route Map Unavailable</span>
-                </div>
-              </div>
-              
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <h3 className="text-xl font-bold text-loft-50 font-mono">#{selectedTrip.id?.slice(0, 8).toUpperCase() || selectedTrip.id}</h3>
-                    <p className="text-sm text-loft-400">{selectedTrip.date ? new Date(selectedTrip.date).toLocaleDateString() : (selectedTrip.createdAt ? new Date(selectedTrip.createdAt).toLocaleDateString() : '')}</p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
-                    selectedTrip.status === 'completed' || selectedTrip.status === 'Completed' ? 'bg-moss-500/20 text-moss-500' : selectedTrip.status === 'pending' ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-500'
-                  }`}>
-                    {selectedTrip.status}
-                  </span>
-                </div>
-
-                {selectedTrip.expiresAt && selectedTrip.status === 'pending' && (
-                  <div className="flex justify-between items-center text-xs text-amber-400 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20 mb-4 font-mono">
-                    <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Untouched Expiry:</span>
-                    <span>{new Date(selectedTrip.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({new Date(selectedTrip.expiresAt).toLocaleDateString()})</span>
-                  </div>
-                )}
-
-                {selectedTrip.cancellationReason && (
-                  <div className="text-xs text-red-400 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20 mb-4">
-                    <span className="font-semibold block mb-0.5">Cancellation Reason:</span>
-                    {selectedTrip.cancellationReason}
-                  </div>
-                )}
-
-                <div className="space-y-4 mb-6">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1 w-2 h-2 rounded-full bg-copper-500"></div>
-                    <div>
-                      <p className="text-xs text-loft-400 uppercase tracking-wider mb-1">Pickup</p>
-                      <p className="text-sm font-medium text-loft-100">{selectedTrip.pickupAddress || selectedTrip.from || 'Pickup Location'}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1 w-2 h-2 rounded-full bg-moss-500"></div>
-                    <div>
-                      <p className="text-xs text-loft-400 uppercase tracking-wider mb-1">Drop-off</p>
-                      <p className="text-sm font-medium text-loft-100">{selectedTrip.dropAddress || selectedTrip.to || 'Drop Location'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-loft-800 pt-4 mb-6">
-                  <h4 className="text-sm font-bold text-loft-200 mb-3">Fare Breakdown</h4>
-                  <div className="flex justify-between text-sm text-loft-300 mb-2">
-                    <span>Estimated Fare</span>
-                    <span>₹{parseFloat(selectedTrip.estimatedFare || selectedTrip.amount || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold text-loft-50 mt-4 pt-4 border-t border-loft-800/50">
-                    <span>Total Amount</span>
-                    <span className="text-copper-500">₹{parseFloat(selectedTrip.estimatedFare || selectedTrip.amount || 0).toLocaleString('en-IN')}</span>
-                  </div>
-                </div>
-
-                {selectedTrip.status === 'pending' ? (
-                  <div className="flex gap-3">
-                    <button 
-                      onClick={() => setCancelModalBooking(selectedTrip)}
-                      className="w-full py-2.5 px-4 rounded-xl border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      <X className="w-4 h-4" /> Cancel Booking
-                    </button>
-                    <button 
-                      onClick={() => setSelectedTrip(null)}
-                      className="btn-secondary w-full py-2.5 text-xs"
-                    >
-                      Close Details
-                    </button>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={() => setSelectedTrip(null)}
-                    className="btn-secondary w-full py-3"
-                  >
-                    Close Details
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Add Funds to Wallet Modal */}
         {showAddFundsModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <motion.div

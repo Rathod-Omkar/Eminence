@@ -603,6 +603,7 @@ const DriverNavigationMap = ({
     setHasArrivedPickup(true);
     setIsSimulating(false);
     setSimSpeedKmh(0);
+    onLocationUpdate?.(pickupCoord);
     onArrivedPickup?.(pickupCoord);
   };
 

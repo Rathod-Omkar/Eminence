@@ -374,6 +374,11 @@ const completeBooking = async (req, res) => {
 
     await booking.save();
 
+    // Increment customer totalTrips for milestone tracking
+    if (booking.customerId) {
+      await Customer.increment('totalTrips', { by: 1, where: { id: booking.customerId } }).catch(() => {});
+    }
+
     // Broadcast completion to customer tracking room
     try {
       const { getIo } = require('../socket');
@@ -575,25 +580,30 @@ const updateBookingStatus = async (req, res) => {
     } catch (socketErr) {}
 
     // Advance driver's delivery queue if admin completes trip
-    if (status === 'completed' && booking.driverId) {
-      const remainingTrips = await Booking.findAll({
-        where: {
-          driverId: booking.driverId,
-          status: ['driver_assigned', 'arrived', 'in_transit']
-        },
-        order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
-      });
-
-      for (let i = 0; i < remainingTrips.length; i++) {
-        remainingTrips[i].queuePosition = i + 1;
-        await remainingTrips[i].save();
+    if (status === 'completed') {
+      if (booking.customerId) {
+        await Customer.increment('totalTrips', { by: 1, where: { id: booking.customerId } }).catch(() => {});
       }
+      if (booking.driverId) {
+        const remainingTrips = await Booking.findAll({
+          where: {
+            driverId: booking.driverId,
+            status: ['driver_assigned', 'arrived', 'in_transit']
+          },
+          order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+        });
 
-      if (remainingTrips.length === 0) {
-        const driver = await Driver.findByPk(booking.driverId);
-        if (driver && driver.status === 'on_trip') {
-          driver.status = 'active';
-          await driver.save();
+        for (let i = 0; i < remainingTrips.length; i++) {
+          remainingTrips[i].queuePosition = i + 1;
+          await remainingTrips[i].save();
+        }
+
+        if (remainingTrips.length === 0) {
+          const driver = await Driver.findByPk(booking.driverId);
+          if (driver && driver.status === 'on_trip') {
+            driver.status = 'active';
+            await driver.save();
+          }
         }
       }
     }
