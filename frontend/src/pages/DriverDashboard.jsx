@@ -9,15 +9,17 @@ import { useSelector } from 'react-redux';
 import api from '../services/api';
 import { io } from 'socket.io-client';
 import DriverNavigationMap from '../components/Driver/DriverNavigationMap';
+import DriverSosModal from '../components/Driver/DriverSosModal';
 
 const DriverDashboard = () => {
-  const { user } = useSelector((state) => state.auth);
+  const { user, token } = useSelector((state) => state.auth);
   const [activeTab, setActiveTab] = useState('today');
   const [isOnline, setIsOnline] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [activatingBookingId, setActivatingBookingId] = useState(null);
   const [heatmapData, setHeatmapData] = useState(null);
   const [driverStats, setDriverStats] = useState(null);
+  const [showSosModal, setShowSosModal] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
   
   // WMS Scanning State
@@ -420,7 +422,7 @@ const DriverDashboard = () => {
             {/* SOS / Emergency in sidebar footer */}
             <div className="pt-3 border-t border-loft-800/80">
               <button 
-                onClick={() => alert('Emergency SOS Alert sent to Eminence Fleet Dispatch Support!')}
+                onClick={() => setShowSosModal(true)}
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-red-600/15 text-red-400 border border-red-500/40 hover:bg-red-600/25 hover:border-red-500 text-xs font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)] cursor-pointer"
               >
                 <AlertTriangle className="w-4 h-4 text-red-400" /> 
@@ -939,6 +941,15 @@ const DriverDashboard = () => {
 
                           <button 
                             type="button"
+                            onClick={() => setShowSosModal(true)}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-red-600/15 text-red-400 border border-red-500/40 hover:bg-red-600/25 hover:border-red-500 text-xs font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)] cursor-pointer"
+                          >
+                            <AlertTriangle className="w-4 h-4 text-red-400" /> 
+                            <span>Emergency SOS Dispatch</span>
+                          </button>
+
+                          <button 
+                            type="button"
                             onClick={() => {
                               setIsNavigating(false);
                               if (activeRide?.bookingId?.startsWith('demo-sim-')) {
@@ -1195,6 +1206,15 @@ const DriverDashboard = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Driver SOS Emergency Modal */}
+      <DriverSosModal
+        isOpen={showSosModal}
+        onClose={() => setShowSosModal(false)}
+        activeRide={activeRide}
+        user={user}
+        token={token}
+      />
     </div>
   );
 };

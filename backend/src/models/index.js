@@ -17,6 +17,7 @@ const AuditLog = require('./AuditLog');
 const PlatformConfig = require('./PlatformConfig');
 const UserConsent = require('./UserConsent');
 const SupportChat = require('./SupportChat');
+const SupportTicket = require('./SupportTicket');
 const Notification = require('./Notification');
 const PromoCode = require('./PromoCode');
 
@@ -348,6 +349,7 @@ module.exports = {
   PlatformConfig,
   UserConsent,
   SupportChat,
+  SupportTicket,
   Notification,
   PromoCode
 };

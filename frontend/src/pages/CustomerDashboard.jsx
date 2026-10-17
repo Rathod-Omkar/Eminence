@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import { updateProfileSuccess } from '../redux/slices/authSlice';
 import ReviewModal from '../components/Customer/ReviewModal';
+import CustomerSupportTab from '../components/Customer/CustomerSupportTab';
 import { addressSchema, profileSchema } from '../utils/formSchemas';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
 
@@ -1810,13 +1811,8 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
           )}
 
           {activeTab === 'support' && (
-             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="card p-12 text-center flex flex-col items-center justify-center border-dashed border-loft-800/80"
-            >
-              <h3 className="text-xl font-bold text-loft-200 mb-2 capitalize">Customer Support</h3>
-              <p className="text-loft-400 max-w-md">Our dedicated 24/7 Pune dispatch helpline is available at 1800-EMINENCE or click the IVR Helpline in the top navigation bar.</p>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <CustomerSupportTab />
             </motion.div>
           )}
 

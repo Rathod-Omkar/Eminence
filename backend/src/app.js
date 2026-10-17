@@ -91,6 +91,7 @@ const addressRoutes = require('./routes/addressRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const ivrRoutes = require('./routes/ivrRoutes');
+const supportRoutes = require('./routes/supportRoutes');
 
 const customerRoutes = require('./routes/customerRoutes');
 
@@ -107,6 +108,7 @@ app.use('/api/address', addressRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/ivr', ivrRoutes);
+app.use('/api/support', supportRoutes);
 
 
 module.exports = app;
