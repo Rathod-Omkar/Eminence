@@ -114,6 +114,30 @@ export default function DispatchScreen() {
     }
   };
 
+  const handleCompleteBooking = (bookingId: string) => {
+    Alert.alert(
+      'Complete Trip',
+      'Are you sure you want to mark this delivery as completed? This will auto-advance the driver\'s delivery queue.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark Completed',
+          style: 'default',
+          onPress: async () => {
+            try {
+              await api.post(`/api/bookings/${bookingId}/complete`);
+              Alert.alert('Trip Completed', 'Booking marked as completed. Driver queue updated.');
+              fetchData();
+            } catch (err: any) {
+              console.error('Error completing trip:', err);
+              Alert.alert('Error', err.response?.data?.message || 'Could not complete trip');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const activeDrivers = drivers.filter((d) => d.status === 'active');
   const pendingBookings = bookings.filter((b) => b.status === 'pending' || !b.driverId);
   const displayedBookings = filter === 'pending' ? pendingBookings : bookings;
@@ -295,14 +319,24 @@ export default function DispatchScreen() {
                     <Text style={styles.unassignedText}>No driver appointed yet</Text>
                   )}
 
-                  <TouchableOpacity
-                    style={[styles.appointBtn, !isPending && styles.reappointBtn]}
-                    onPress={() => handleOpenAssignModal(b)}
-                  >
-                    <Text style={styles.appointBtnText}>
-                      {isPending ? 'Appoint Driver' : 'Reassign'}
-                    </Text>
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    {!isPending && b.status !== 'completed' && (
+                      <TouchableOpacity
+                        style={styles.adminCompleteBtn}
+                        onPress={() => handleCompleteBooking(b.id)}
+                      >
+                        <Text style={styles.adminCompleteBtnText}>✓ Complete</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={[styles.appointBtn, !isPending && styles.reappointBtn]}
+                      onPress={() => handleOpenAssignModal(b)}
+                    >
+                      <Text style={styles.appointBtnText}>
+                        {isPending ? 'Appoint Driver' : 'Reassign'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             );
@@ -845,5 +879,18 @@ const styles = StyleSheet.create({
   },
   drvQueueMultipleText: {
     color: '#fb923c',
+  },
+  adminCompleteBtn: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  adminCompleteBtnText: {
+    color: '#22c55e',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

@@ -451,6 +451,31 @@ const updateBookingStatus = async (req, res) => {
     }
 
     await booking.save();
+
+    // Advance driver's delivery queue if admin completes trip
+    if (status === 'completed' && booking.driverId) {
+      const remainingTrips = await Booking.findAll({
+        where: {
+          driverId: booking.driverId,
+          status: ['driver_assigned', 'arrived', 'in_transit']
+        },
+        order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+      });
+
+      for (let i = 0; i < remainingTrips.length; i++) {
+        remainingTrips[i].queuePosition = i + 1;
+        await remainingTrips[i].save();
+      }
+
+      if (remainingTrips.length === 0) {
+        const driver = await Driver.findByPk(booking.driverId);
+        if (driver && driver.status === 'on_trip') {
+          driver.status = 'active';
+          await driver.save();
+        }
+      }
+    }
+
     res.status(200).json({ success: true, booking });
   } catch (error) {
     console.error('Error updating booking status:', error);

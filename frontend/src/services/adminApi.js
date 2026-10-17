@@ -35,5 +35,6 @@ export const adminApi = {
   // Booking assignment & fleet dispatch by Admin
   getBookings: () => api.get('/api/bookings'),
   assignDriverToBooking: (bookingId, driverId, vehicleId) => api.put(`/api/bookings/${bookingId}/status`, { status: 'driver_assigned', driverId, ...(vehicleId ? { vehicleId } : {}) }),
+  completeBooking: (bookingId, data = {}) => api.post(`/api/bookings/${bookingId}/complete`, data),
   getDriverQueue: (driverId) => api.get(`/api/drivers/${driverId}/queue`)
 };

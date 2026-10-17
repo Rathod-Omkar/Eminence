@@ -77,6 +77,30 @@ const AppointWorkTab = () => {
     }
   };
 
+  const handleCompleteBooking = async (bookingId) => {
+    if (!window.confirm('Are you sure you want to mark this delivery as completed from admin? This will advance the driver\'s delivery queue.')) {
+      return;
+    }
+    setAssigningId(bookingId);
+    setFeedback(null);
+    try {
+      await adminApi.completeBooking(bookingId);
+      setFeedback({
+        type: 'success',
+        message: `Booking #${bookingId ? bookingId.slice(0, 8) : ''} marked as completed! Driver queue updated.`
+      });
+      await fetchData();
+    } catch (err) {
+      console.error('Error completing booking from admin:', err);
+      setFeedback({
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to complete trip. Please try again.'
+      });
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
   // Map each driver to their active/queued bookings
   const driverQueueMap = useMemo(() => {
     const map = {};
@@ -506,27 +530,42 @@ const AppointWorkTab = () => {
                             </div>
                           )}
 
-                          <select
-                            defaultValue=""
-                            value={isPending ? '' : (currentDriver?.id || '')}
-                            onChange={(e) => handleAppointBooking(b.id, e.target.value)}
-                            disabled={assigningId === b.id}
-                            className={`input-field py-1.5 px-3 text-xs bg-loft-950 border-loft-800 max-w-[230px] w-full cursor-pointer ${
-                              isPending ? 'border-copper-500/50 text-loft-100 font-medium' : 'text-loft-300'
-                            }`}
-                          >
-                            <option value="" disabled>
-                              {isPending ? 'Appoint Driver / Add to Queue' : 'Reassign Driver / Move Queue'}
-                            </option>
-                            {assignableDrivers.map((drv) => {
-                              const qCount = driverQueueMap[drv.id]?.length || 0;
-                              return (
-                                <option key={drv.id} value={drv.id}>
-                                  {drv.name} ({qCount === 0 ? '🟢 Available' : `🟡 ${qCount} in queue`})
-                                </option>
-                              );
-                            })}
-                          </select>
+                          <div className="flex items-center gap-2">
+                            {!isPending && b.status !== 'completed' && b.status !== 'cancelled' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCompleteBooking(b.id)}
+                                disabled={assigningId === b.id}
+                                title="Mark this delivery as completed and advance queue"
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-moss-500/15 hover:bg-moss-500/25 text-moss-400 border border-moss-500/30 flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Complete</span>
+                              </button>
+                            )}
+
+                            <select
+                              defaultValue=""
+                              value={isPending ? '' : (currentDriver?.id || '')}
+                              onChange={(e) => handleAppointBooking(b.id, e.target.value)}
+                              disabled={assigningId === b.id}
+                              className={`input-field py-1.5 px-3 text-xs bg-loft-950 border-loft-800 max-w-[210px] w-full cursor-pointer ${
+                                isPending ? 'border-copper-500/50 text-loft-100 font-medium' : 'text-loft-300'
+                              }`}
+                            >
+                              <option value="" disabled>
+                                {isPending ? 'Appoint Driver / Add to Queue' : 'Reassign Driver / Move Queue'}
+                              </option>
+                              {assignableDrivers.map((drv) => {
+                                const qCount = driverQueueMap[drv.id]?.length || 0;
+                                return (
+                                  <option key={drv.id} value={drv.id}>
+                                    {drv.name} ({qCount === 0 ? '🟢 Available' : `🟡 ${qCount} in queue`})
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
 
                           {assignableDrivers.length === 0 && (
                             <p className="text-[10px] text-amber-400 mt-1">
