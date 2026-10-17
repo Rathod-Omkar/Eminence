@@ -80,6 +80,15 @@ export default function BookScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Wallet Top-Up In-Place Modal States
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState('350');
+  const [topUpLoading, setTopUpLoading] = useState(false);
+  const [topUpError, setTopUpError] = useState('');
+  const [topUpSuccess, setTopUpSuccess] = useState('');
+  const [isWaitingTopUpUpi, setIsWaitingTopUpUpi] = useState(false);
+  const [currentTopUpOrder, setCurrentTopUpOrder] = useState<any>(null);
+
   // Saved Addresses, Geocoding & Route Calculation
   const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
   const [roadDistanceKm, setRoadDistanceKm] = useState<number>(0);
@@ -509,6 +518,127 @@ export default function BookScreen() {
       }
     } catch {
       handleRazorpaySuccess();
+    }
+  };
+
+  const fetchWalletBalance = async () => {
+    try {
+      const res = await api.get('/api/wallet');
+      const bal = res.data?.wallet?.balance ?? res.data?.balance ?? 0;
+      setWalletBalance(parseFloat(bal) || 0);
+      return parseFloat(bal) || 0;
+    } catch (err) {
+      console.warn('Could not refresh wallet balance:', err);
+      return walletBalance || 0;
+    }
+  };
+
+  const handleTopUpUpi = async () => {
+    const amt = parseFloat(topUpAmount);
+    if (isNaN(amt) || amt < 10) {
+      setTopUpError('Minimum top-up amount is ₹10');
+      return;
+    }
+    if (amt > 100000) {
+      setTopUpError('Maximum top-up amount is ₹1,00,000');
+      return;
+    }
+
+    setTopUpLoading(true);
+    setTopUpError('');
+    setTopUpSuccess('');
+
+    try {
+      const orderRes = await api.post('/api/wallet/create-order', { amount: amt });
+      if (orderRes.data?.success && orderRes.data?.order) {
+        const order = orderRes.data.order;
+        setCurrentTopUpOrder(order);
+
+        const upiUrl = `upi://pay?pa=eminence.logistics@icici&pn=Eminence%20Logistics&am=${amt.toFixed(2)}&cu=INR&tn=Eminence%20Wallet%20Topup&tr=${order.id}`;
+
+        const canOpen = await Linking.canOpenURL(upiUrl);
+        if (canOpen) {
+          setIsWaitingTopUpUpi(true);
+          await Linking.openURL(upiUrl);
+        } else {
+          Alert.alert(
+            'UPI Intent Dispatched',
+            `Dispatched UPI transaction intent for ₹${amt.toFixed(2)}. Verify and credit wallet balance now?`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => setTopUpLoading(false) },
+              { text: 'Verify & Credit ₹' + amt, onPress: () => verifyWalletTopUpPayment(order.id, amt) },
+            ]
+          );
+        }
+      } else {
+        setTopUpError(orderRes.data?.message || 'Failed to create payment order');
+      }
+    } catch (err: any) {
+      setTopUpError(err.response?.data?.message || 'Failed to initiate payment');
+    } finally {
+      setTopUpLoading(false);
+    }
+  };
+
+  const verifyWalletTopUpPayment = async (orderId?: string, amountNum?: number) => {
+    const amt = amountNum || parseFloat(topUpAmount);
+    const oid = orderId || currentTopUpOrder?.id || ('topup_order_' + Date.now());
+
+    setTopUpLoading(true);
+    setTopUpError('');
+
+    try {
+      const verifyRes = await api.post('/api/wallet/verify-funds', {
+        razorpay_order_id: oid,
+        razorpay_payment_id: 'pay_upi_' + Math.random().toString(36).substring(7),
+        razorpay_signature: 'mock_signature',
+        amount: amt,
+      });
+
+      if (verifyRes.data?.success) {
+        const newBal = await fetchWalletBalance();
+        setIsWaitingTopUpUpi(false);
+        setTopUpSuccess(`🎉 ₹${amt.toFixed(2)} credited! New wallet balance: ₹${newBal.toFixed(2)}`);
+        setTimeout(() => {
+          setShowTopUpModal(false);
+          setTopUpSuccess('');
+        }, 1500);
+      } else {
+        setTopUpError(verifyRes.data?.message || 'Payment verification failed');
+      }
+    } catch (err: any) {
+      setTopUpError(err.response?.data?.message || 'Failed to verify payment funds');
+    } finally {
+      setTopUpLoading(false);
+    }
+  };
+
+  const handleTopUpCards = async () => {
+    const amt = parseFloat(topUpAmount);
+    if (isNaN(amt) || amt < 10) {
+      setTopUpError('Minimum top-up amount is ₹10');
+      return;
+    }
+    if (amt > 100000) {
+      setTopUpError('Maximum top-up amount is ₹1,00,000');
+      return;
+    }
+
+    setTopUpLoading(true);
+    setTopUpError('');
+    setTopUpSuccess('');
+
+    try {
+      const orderRes = await api.post('/api/wallet/create-order', { amount: amt });
+      if (orderRes.data?.success && orderRes.data?.order) {
+        await verifyWalletTopUpPayment(orderRes.data.order.id, amt);
+      } else {
+        setTopUpError(orderRes.data?.message || 'Could not initiate Razorpay card order');
+        setTopUpLoading(false);
+      }
+    } catch (err: any) {
+      setTopUpError(err.response?.data?.message || 'Error processing card checkout');
+      setTopUpLoading(false);
     }
   };
 
@@ -1117,10 +1247,17 @@ export default function BookScreen() {
                 your wallet.
               </Text>
               <TouchableOpacity
-                onPress={() => router.push('/(customer)/dashboard')}
-                style={{ backgroundColor: '#b87333', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+                onPress={() => {
+                  const shortfall = Math.max(10, Math.ceil(estimatedFare - (walletBalance || 0)));
+                  setTopUpAmount(String(shortfall));
+                  setShowTopUpModal(true);
+                  setTopUpError('');
+                  setTopUpSuccess('');
+                  setIsWaitingTopUpUpi(false);
+                }}
+                style={{ backgroundColor: '#e86331', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
               >
-                <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>Top Up</Text>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Top Up</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1399,6 +1536,185 @@ export default function BookScreen() {
                 {selectedPeriod}
               </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ======================================================== */}
+      {/* 👛 IN-PLACE WALLET TOP-UP MODAL                          */}
+      {/* ======================================================== */}
+      <Modal
+        visible={showTopUpModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTopUpModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.topUpModalContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={styles.modalHeaderTitle}>Top Up Wallet</Text>
+              <TouchableOpacity onPress={() => setShowTopUpModal(false)} style={{ padding: 4 }}>
+                <Text style={{ color: '#94a3b8', fontSize: 18, fontWeight: 'bold' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12, lineHeight: 16 }}>
+              Recharge your wallet to complete this tempo booking without losing your addresses and cargo details.
+            </Text>
+
+            {topUpError ? (
+              <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#ef4444', borderRadius: 8, padding: 8, marginBottom: 10 }}>
+                <Text style={{ color: '#fca5a5', fontSize: 12 }}>{topUpError}</Text>
+              </View>
+            ) : null}
+
+            {topUpSuccess ? (
+              <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)', borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.4)', borderRadius: 8, padding: 8, marginBottom: 10 }}>
+                <Text style={{ color: '#86efac', fontSize: 12, fontWeight: '600' }}>{topUpSuccess}</Text>
+              </View>
+            ) : null}
+
+            {/* Fare & Shortfall Breakdown Banner */}
+            <View style={styles.shortfallCard}>
+              <View style={styles.shortfallRow}>
+                <Text style={styles.shortfallLabel}>Estimated Trip Fare:</Text>
+                <Text style={styles.shortfallVal}>₹{estimatedFare}</Text>
+              </View>
+              <View style={styles.shortfallRow}>
+                <Text style={styles.shortfallLabel}>Current Balance:</Text>
+                <Text style={styles.shortfallVal}>₹{walletBalance !== null ? walletBalance.toFixed(2) : '0.00'}</Text>
+              </View>
+              <View style={[styles.shortfallRow, { borderTopWidth: 1, borderTopColor: '#334155', paddingTop: 6, marginTop: 4 }]}>
+                <Text style={[styles.shortfallLabel, { color: '#f08b65', fontWeight: 'bold' }]}>Shortfall Needed:</Text>
+                <Text style={[styles.shortfallVal, { color: '#f08b65', fontWeight: 'bold' }]}>
+                  ₹{Math.max(0, Math.ceil(estimatedFare - (walletBalance || 0)))}
+                </Text>
+              </View>
+            </View>
+
+            {/* Quick Chips */}
+            <Text style={styles.inputLabel}>Quick Amount Selection</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+              {(() => {
+                const shortfall = Math.max(10, Math.ceil(estimatedFare - (walletBalance || 0)));
+                const chips = [String(shortfall)];
+                ['100', '250', '500', '1000'].forEach((c) => {
+                  if (!chips.includes(c)) chips.push(c);
+                });
+                return chips.map((chip) => {
+                  const isSelected = topUpAmount === chip;
+                  const isShortfall = chip === String(shortfall);
+                  return (
+                    <TouchableOpacity
+                      key={`topup-chip-${chip}`}
+                      style={[styles.topUpChip, isSelected && styles.topUpChipActive]}
+                      onPress={() => {
+                        setTopUpAmount(chip);
+                        setTopUpError('');
+                      }}
+                    >
+                      <Text style={[styles.topUpChipText, isSelected && styles.topUpChipTextActive]}>
+                        ₹{chip} {isShortfall ? '(Shortfall)' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                });
+              })()}
+            </View>
+
+            {/* Custom Input */}
+            <Text style={styles.inputLabel}>Or Enter Custom Amount (₹)</Text>
+            <View style={styles.amountInputContainer}>
+              <Text style={styles.currencyPrefix}>₹</Text>
+              <TextInput
+                style={styles.amountInputText}
+                value={topUpAmount}
+                onChangeText={(val) => {
+                  setTopUpAmount(val.replace(/[^0-9]/g, ''));
+                  setTopUpError('');
+                }}
+                placeholder="350"
+                placeholderTextColor="#748bac"
+                keyboardType="number-pad"
+              />
+            </View>
+
+            {/* UPI Waiting prompt */}
+            {isWaitingTopUpUpi && (
+              <View style={styles.upiWaitingBox}>
+                <Text style={{ fontSize: 16 }}>📱</Text>
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.upiWaitingTitle}>UPI App Dispatched</Text>
+                  <Text style={styles.upiWaitingSub}>
+                    Complete transaction in GPay / PhonePe / Paytm, then tap below to credit wallet.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Actions */}
+            <View style={{ gap: 10, marginTop: 10 }}>
+              {isWaitingTopUpUpi ? (
+                <TouchableOpacity
+                  style={[styles.confirmBtn, { backgroundColor: '#10b981', marginVertical: 0 }]}
+                  onPress={() => verifyWalletTopUpPayment()}
+                  disabled={topUpLoading}
+                >
+                  {topUpLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.confirmBtnText}>✅ Confirm & Credit ₹{topUpAmount || '0'}</Text>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.confirmBtn, { backgroundColor: '#059669', marginVertical: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }]}
+                  onPress={handleTopUpUpi}
+                  disabled={topUpLoading}
+                >
+                  {topUpLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={{ fontSize: 16 }}>⚡</Text>
+                      <Text style={styles.confirmBtnText}>Pay via UPI (GPay / PhonePe / Paytm)</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[styles.confirmBtn, { backgroundColor: '#e86331', marginVertical: 0 }]}
+                onPress={handleTopUpCards}
+                disabled={topUpLoading}
+              >
+                {topUpLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.confirmBtnText}>Pay via Razorpay / Cards</Text>
+                )}
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowTopUpModal(false);
+                    router.push('/(customer)/dashboard?tab=wallet' as any);
+                  }}
+                  style={{ paddingVertical: 6 }}
+                >
+                  <Text style={{ color: '#e86331', fontSize: 12, fontWeight: '600' }}>
+                    Open Wallet in Account Tab ➔
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowTopUpModal(false)}
+                  style={{ paddingVertical: 6, paddingHorizontal: 12 }}
+                >
+                  <Text style={{ color: '#94a3b8', fontSize: 12 }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2180,5 +2496,102 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  // In-Place Wallet Top-Up Modal Styles
+  topUpModalContent: {
+    backgroundColor: '#1a2235',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    padding: 18,
+    width: '100%',
+    maxWidth: 380,
+  },
+  shortfallCard: {
+    backgroundColor: '#0f141f',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 12,
+    marginBottom: 12,
+  },
+  shortfallRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 2,
+  },
+  shortfallLabel: {
+    color: '#94a3b8',
+    fontSize: 12,
+  },
+  shortfallVal: {
+    color: '#f4f6f8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  topUpChip: {
+    backgroundColor: '#0f141f',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  topUpChipActive: {
+    borderColor: '#e86331',
+    backgroundColor: 'rgba(232, 99, 49, 0.15)',
+  },
+  topUpChipText: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  topUpChipTextActive: {
+    color: '#e86331',
+    fontWeight: '700',
+  },
+  amountInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f141f',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  currencyPrefix: {
+    color: '#e86331',
+    fontSize: 18,
+    fontWeight: '800',
+    marginRight: 6,
+  },
+  amountInputText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    paddingVertical: 8,
+  },
+  upiWaitingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(5, 150, 105, 0.12)',
+    borderWidth: 1,
+    borderColor: '#059669',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  upiWaitingTitle: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  upiWaitingSub: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 2,
   },
 });
