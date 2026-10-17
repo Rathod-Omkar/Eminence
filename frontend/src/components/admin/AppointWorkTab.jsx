@@ -63,7 +63,7 @@ const AppointWorkTab = () => {
       await adminApi.assignDriverToBooking(bookingId, driverId, vehicleId);
       setFeedback({
         type: 'success',
-        message: `Booking #${bookingId.slice(0, 8)} successfully appointed to ${driverName} (Delivery #${queuePos} in Queue)!`
+        message: `Booking #${bookingId ? bookingId.slice(0, 8) : ''} successfully appointed to ${driverName} (Delivery #${queuePos} in Queue)!`
       });
       await fetchData();
     } catch (err) {
@@ -107,10 +107,10 @@ const AppointWorkTab = () => {
       pending,
       inProgress,
       completed,
-      availableDrivers: activeDrivers.length,
+      availableDrivers: assignableDrivers.length,
       totalDrivers: drivers.length
     };
-  }, [bookings, activeDrivers, drivers]);
+  }, [bookings, assignableDrivers, drivers]);
 
   // Filtered bookings
   const filteredBookings = useMemo(() => {
@@ -419,7 +419,7 @@ const AppointWorkTab = () => {
                       {/* Booking ID */}
                       <td className="px-6 py-4 align-top">
                         <span className="font-mono text-xs text-loft-300 bg-loft-950 px-2 py-1 rounded border border-loft-800 block w-fit">
-                          #{b.id.slice(0, 8)}
+                          #{b.id ? b.id.slice(0, 8) : ''}
                         </span>
                         <span className="text-[11px] text-loft-500 mt-1 block">
                           {b.createdAt ? new Date(b.createdAt).toLocaleDateString() : 'Recent'}
