@@ -1,4 +1,5 @@
 const { Wallet, Transaction, Customer, PromoCode, sequelize } = require('../models');
+const { Op } = require('sequelize');
 const crypto = require('crypto');
 const Razorpay = require('razorpay');
 
@@ -61,9 +62,11 @@ const applyReferralCode = async (req, res) => {
     const { referralCode } = req.body;
     const customerId = req.user.id;
 
-    if (!referralCode) {
-      return res.status(400).json({ success: false, message: 'Referral code is required' });
+    if (!referralCode || !referralCode.trim()) {
+      return res.status(400).json({ success: false, message: 'Referral or promo code is required' });
     }
+
+    const cleanCode = referralCode.trim().toUpperCase();
 
     const transaction = await sequelize.transaction();
     try {
@@ -73,19 +76,9 @@ const applyReferralCode = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Customer not found' });
       }
 
-      if (currentCustomer.referredBy) {
-        await transaction.rollback();
-        return res.status(400).json({ success: false, message: 'You have already used a referral code' });
-      }
-
-      if (currentCustomer.referralCode === referralCode) {
-        await transaction.rollback();
-        return res.status(400).json({ success: false, message: 'You cannot use your own referral code' });
-      }
-
-      // Check if it matches a managed PromoCode first
+      // 1. Check if it matches an admin-managed PromoCode first
       const promo = await PromoCode.findOne({ 
-        where: { code: referralCode.trim().toUpperCase() },
+        where: { code: cleanCode },
         transaction,
         lock: transaction.LOCK.UPDATE
       });
@@ -96,7 +89,7 @@ const applyReferralCode = async (req, res) => {
           return res.status(400).json({ success: false, message: 'This promo code is currently inactive.' });
         }
 
-        if (new Date() > new Date(promo.expiresAt)) {
+        if (promo.expiresAt && new Date() > new Date(promo.expiresAt)) {
           await transaction.rollback();
           return res.status(400).json({ success: false, message: 'This promo code has expired.' });
         }
@@ -106,13 +99,30 @@ const applyReferralCode = async (req, res) => {
           return res.status(400).json({ success: false, message: 'This promo code has reached its maximum usage limit.' });
         }
 
-        const discount = parseFloat(promo.discountValue) || 100.0;
-
         let currentWallet = await Wallet.findOne({ where: { customerId: currentCustomer.id }, transaction });
         if (!currentWallet) {
           currentWallet = await Wallet.create({ customerId: currentCustomer.id, balance: 0 }, { transaction });
         }
-        currentWallet.balance += discount;
+
+        // Verify that this customer has not already redeemed this promo code
+        const existingPromoUse = await Transaction.findOne({
+          where: {
+            walletId: currentWallet.id,
+            [Op.or]: [
+              { referenceId: String(promo.id) },
+              { description: `Promo Code Applied: ${promo.code}` }
+            ]
+          },
+          transaction
+        });
+
+        if (existingPromoUse) {
+          await transaction.rollback();
+          return res.status(400).json({ success: false, message: 'You have already used this promo code.' });
+        }
+
+        const discount = parseFloat(promo.discountValue) || 100.0;
+        currentWallet.balance = parseFloat(currentWallet.balance || 0) + discount;
         await currentWallet.save({ transaction });
 
         await Transaction.create({
@@ -120,14 +130,14 @@ const applyReferralCode = async (req, res) => {
           amount: discount,
           type: 'CREDIT',
           description: `Promo Code Applied: ${promo.code}`,
-          referenceId: promo.id
+          referenceId: String(promo.id)
         }, { transaction });
 
         promo.usedCount = (promo.usedCount || 0) + 1;
         await promo.save({ transaction });
 
-        currentCustomer.referredBy = promo.code;
-        await currentCustomer.save({ transaction });
+        // Note: Do not mutate currentCustomer.referredBy for promo codes,
+        // so promo codes and customer peer referrals remain independent.
 
         await transaction.commit();
 
@@ -139,10 +149,20 @@ const applyReferralCode = async (req, res) => {
         });
       }
 
-      // Otherwise, check for Customer Peer Referral code
+      // 2. Otherwise, check for Customer Peer Referral code
+      if (currentCustomer.referralCode && currentCustomer.referralCode.toUpperCase() === cleanCode) {
+        await transaction.rollback();
+        return res.status(400).json({ success: false, message: 'You cannot use your own referral code' });
+      }
+
+      if (currentCustomer.referredBy) {
+        await transaction.rollback();
+        return res.status(400).json({ success: false, message: 'You have already used a referral code' });
+      }
+
       let referrer = null;
-      if (referralCode !== 'EMINENCE-XYZ123') {
-        referrer = await Customer.findOne({ where: { referralCode }, transaction, lock: transaction.LOCK.UPDATE });
+      if (cleanCode !== 'EMINENCE-XYZ123') {
+        referrer = await Customer.findOne({ where: { referralCode: cleanCode }, transaction, lock: transaction.LOCK.UPDATE });
         if (!referrer) {
           await transaction.rollback();
           return res.status(404).json({ success: false, message: 'Invalid referral code or promo code' });
@@ -153,12 +173,12 @@ const applyReferralCode = async (req, res) => {
       const NEW_USER_REWARD = 100.0;
       const REFERRER_REWARD = 50.0;
 
-      // 1. Update current customer wallet
+      // Update current customer wallet
       let currentWallet = await Wallet.findOne({ where: { customerId: currentCustomer.id }, transaction });
       if (!currentWallet) {
         currentWallet = await Wallet.create({ customerId: currentCustomer.id, balance: 0 }, { transaction });
       }
-      currentWallet.balance += NEW_USER_REWARD;
+      currentWallet.balance = parseFloat(currentWallet.balance || 0) + NEW_USER_REWARD;
       await currentWallet.save({ transaction });
 
       await Transaction.create({
@@ -169,13 +189,13 @@ const applyReferralCode = async (req, res) => {
         referenceId: referrer ? referrer.id : 'PROMO_CODE'
       }, { transaction });
 
-      // 2. Update referrer wallet (Skip for test promo code)
+      // Update referrer wallet (Skip for demo code)
       if (referrer) {
         let referrerWallet = await Wallet.findOne({ where: { customerId: referrer.id }, transaction });
         if (!referrerWallet) {
           referrerWallet = await Wallet.create({ customerId: referrer.id, balance: 0 }, { transaction });
         }
-        referrerWallet.balance += REFERRER_REWARD;
+        referrerWallet.balance = parseFloat(referrerWallet.balance || 0) + REFERRER_REWARD;
         await referrerWallet.save({ transaction });
 
         await Transaction.create({
@@ -187,8 +207,8 @@ const applyReferralCode = async (req, res) => {
         }, { transaction });
       }
 
-      // 3. Mark current customer as referred
-      currentCustomer.referredBy = referralCode;
+      // Mark current customer as referred by peer
+      currentCustomer.referredBy = cleanCode;
       await currentCustomer.save({ transaction });
 
       await transaction.commit();

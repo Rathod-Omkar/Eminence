@@ -2,7 +2,8 @@ const crypto = require('crypto');
 const { register, login, getProfile, updateProfile } = require('../../src/controllers/authController');
 const { createProOrder, verifyProSubscription, getProStatus } = require('../../src/controllers/customerController');
 const { bulkDeleteCustomers, bulkDeleteDrivers, bulkDeleteAdmins, deleteAdmin } = require('../../src/controllers/adminController');
-const { Customer, Driver, Admin, Wallet, Transaction, Address } = require('../../src/models');
+const { applyReferralCode } = require('../../src/controllers/walletController');
+const { Customer, Driver, Admin, Wallet, Transaction, Address, PromoCode } = require('../../src/models');
 
 function mockResponse() {
   const res = {
@@ -497,6 +498,88 @@ describe('System Features & Enhancements Suite', () => {
       expect(res.statusCode).toBe(403);
       expect(res.data.success).toBe(false);
       expect(res.data.message).toMatch(/primary Super Administrator cannot be deleted/i);
+    });
+  });
+
+  describe('7. Promo Code vs Peer Referral Independence', () => {
+    let customerWithReferral;
+    let testPromo;
+
+    beforeAll(async () => {
+      customerWithReferral = await Customer.create({
+        name: 'Referred Customer',
+        email: `referred_cust_${Date.now()}@test.com`,
+        phone: `91${Math.floor(10000000 + Math.random() * 90000000)}`,
+        password: 'Password123!',
+        referralCode: `EMINENCE-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+        referredBy: 'EMINENCE-FRIEND1'
+      });
+
+      testPromo = await PromoCode.create({
+        code: `PROMOTEST${Math.floor(Math.random() * 10000)}`,
+        description: 'Festival Discount',
+        discountType: 'FLAT',
+        discountValue: 400.00,
+        maxUses: 100,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        isActive: true
+      });
+    });
+
+    test('should allow a customer with existing referredBy to successfully apply a promo code', async () => {
+      const req = {
+        body: { referralCode: testPromo.code },
+        user: { id: customerWithReferral.id }
+      };
+      const res = mockResponse();
+
+      await applyReferralCode(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data.success).toBe(true);
+      expect(res.data.discount).toBe(400);
+      expect(res.data.message).toMatch(/Promo code applied/i);
+
+      const wallet = await Wallet.findOne({ where: { customerId: customerWithReferral.id } });
+      expect(parseFloat(wallet.balance)).toBe(400);
+
+      const refreshedCustomer = await Customer.findByPk(customerWithReferral.id);
+      expect(refreshedCustomer.referredBy).toBe('EMINENCE-FRIEND1');
+    });
+
+    test('should reject applying the same promo code a second time by the same customer', async () => {
+      const req = {
+        body: { referralCode: testPromo.code },
+        user: { id: customerWithReferral.id }
+      };
+      const res = mockResponse();
+
+      await applyReferralCode(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/already used this promo code/i);
+    });
+
+    test('should reject applying an inactive or expired promo code', async () => {
+      const inactivePromo = await PromoCode.create({
+        code: `INACTIVE${Math.floor(Math.random() * 10000)}`,
+        discountValue: 200.00,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        isActive: false
+      });
+
+      const req = {
+        body: { referralCode: inactivePromo.code },
+        user: { id: customerWithReferral.id }
+      };
+      const res = mockResponse();
+
+      await applyReferralCode(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.data.success).toBe(false);
+      expect(res.data.message).toMatch(/currently inactive/i);
     });
   });
 });

@@ -1486,7 +1486,7 @@ const Booking = () => {
                         value={promoCode}
                         onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
                         className="input-field pl-12 uppercase" 
-                        placeholder="e.g. EMINENCE-XYZ123" 
+                        placeholder="e.g. OMKAR100 or EMINENCE-XYZ123" 
                         disabled={discount > 0}
                       />
                     </div>
