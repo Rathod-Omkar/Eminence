@@ -3,14 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, Box, ShieldCheck, Tag, Shield, Crown,
   Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet,
-  Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Truck
+  Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Truck, Phone
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
 import RouteMapPreview from '../components/Customer/Booking/RouteMapPreview';
-import { bookingLocationsSchema, bookingDetailsSchema } from '../utils/formSchemas';
+import { bookingLocationsSchema, bookingDetailsSchema, bookingPaymentSchema } from '../utils/formSchemas';
 import AuthModal from '../components/Auth/AuthModal';
 import { geocodeAddress, fetchOsrmRoute } from '../utils/puneGeocoder';
 
@@ -140,9 +140,16 @@ const Booking = () => {
     bookingMode: 'dedicated', // dedicated, shared
     isRoundTrip: false,
     waitingTimeHours: 1,
-    phone: '',
+    phone: user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : '',
     paymentMethod: 'online'
   });
+
+  useEffect(() => {
+    if (user?.phone && !formData.phone) {
+      const cleanPhone = String(user.phone).replace(/\D/g, '').slice(-10);
+      setFormData(prev => ({ ...prev, phone: cleanPhone }));
+    }
+  }, [user?.phone, formData.phone]);
 
   useEffect(() => {
     if (location.state?.selectedTempo || location.state?.tempoType || location.state?.weight) {
@@ -419,8 +426,40 @@ const Booking = () => {
     return () => clearTimeout(timer);
   }, [isAiReviewStep, hasAiBooking, aiPickup, aiDrop, aiTempo]);
 
+  // Contact phone number live validation helper
+  const getPhoneValidationStatus = useCallback(() => {
+    const raw = (formData.phone || '').trim();
+    if (!raw) {
+      return { status: 'empty', message: 'Required for live OTP & driver arrival coordination', isValid: false };
+    }
+    if (raw.length < 10) {
+      return { 
+        status: 'incomplete', 
+        message: `${raw.length}/10 digits entered (${10 - raw.length} more needed)`, 
+        isValid: false 
+      };
+    }
+    if (!/^[6-9]/.test(raw) && raw !== '1234567890') {
+      return { 
+        status: 'invalid', 
+        message: 'Must begin with 6, 7, 8, or 9 (standard Indian mobile)', 
+        isValid: false 
+      };
+    }
+    return { status: 'valid', message: 'Verified 10-digit mobile number', isValid: true };
+  }, [formData.phone]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'phone') {
+      // Strictly restrict to digits only and maximum 10 digits
+      const sanitized = value.replace(/\D/g, '').slice(0, 10);
+      setFormData(prev => ({ ...prev, phone: sanitized }));
+      if (error && (error.toLowerCase().includes('phone') || error.toLowerCase().includes('mobile'))) {
+        setError('');
+      }
+      return;
+    }
     if (name === 'date') {
       if (value && value < todayStr) {
         setError('Booking date cannot be in the past. Please select today or a future date.');
@@ -741,6 +780,13 @@ const Booking = () => {
     if (!user) {
       setError('You must be logged in to create a booking. Please sign in first.');
       setShowAuthModal(true);
+      return;
+    }
+
+    // Contact Phone Number Validation
+    const phoneStatus = getPhoneValidationStatus();
+    if (!phoneStatus.isValid) {
+      setError(phoneStatus.message || 'Please provide a valid 10-digit Indian contact phone number.');
       return;
     }
 
@@ -1408,8 +1454,81 @@ const Booking = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-loft-200 mb-1">Contact Phone Number</label>
-                  <input required name="phone" value={formData.phone} onChange={handleChange} type="tel" className="input-field" placeholder="10-digit mobile number" />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-loft-200">
+                      Contact Phone Number <span className="text-copper-400">*</span>
+                    </label>
+                    {user?.phone && formData.phone !== String(user.phone).replace(/\D/g, '').slice(-10) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cleanPhone = String(user.phone).replace(/\D/g, '').slice(-10);
+                          setFormData(prev => ({ ...prev, phone: cleanPhone }));
+                        }}
+                        className="text-xs text-copper-400 hover:text-copper-300 underline transition-colors"
+                      >
+                        Use account phone ({String(user.phone).slice(-10)})
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="relative flex items-center">
+                    {/* Country Code Prefix */}
+                    <div className="absolute left-3.5 flex items-center gap-1 text-xs font-semibold text-loft-400 select-none border-r border-loft-700/60 pr-2.5 z-10">
+                      <span className="text-sm">🇮🇳</span>
+                      <span>+91</span>
+                    </div>
+
+                    <input
+                      required
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleChange}
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]{10}"
+                      maxLength={10}
+                      className={`input-field pl-20 pr-24 tracking-wide font-mono text-sm transition-all ${
+                        getPhoneValidationStatus().isValid
+                          ? 'border-moss-500/60 focus:border-moss-400 focus:ring-moss-400/20'
+                          : formData.phone.length > 0
+                          ? 'border-red-500/50 focus:border-red-400 focus:ring-red-400/20'
+                          : 'focus:border-copper-500'
+                      }`}
+                      placeholder="98765 43210"
+                    />
+
+                    {/* Status Badge & Character Counter */}
+                    <div className="absolute right-3.5 flex items-center gap-2 pointer-events-none">
+                      {getPhoneValidationStatus().isValid ? (
+                        <div className="flex items-center gap-1 text-moss-400 text-xs font-semibold bg-moss-950/60 px-2 py-0.5 rounded-full border border-moss-800/60">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>10/10</span>
+                        </div>
+                      ) : (
+                        <span className={`text-xs font-mono ${formData.phone.length === 0 ? 'text-loft-500' : 'text-amber-400'}`}>
+                          {formData.phone.length}/10
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dynamic Status / Helper Message */}
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                    {getPhoneValidationStatus().isValid ? (
+                      <span className="text-moss-400 flex items-center gap-1">
+                        <CheckCircle className="w-3.5 h-3.5" /> Ready for OTP delivery and driver trip coordination.
+                      </span>
+                    ) : formData.phone.length > 0 ? (
+                      <span className="text-red-400 flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5" /> {getPhoneValidationStatus().message}
+                      </span>
+                    ) : (
+                      <span className="text-loft-400">
+                        Driver will contact this number upon pickup arrival. 4-digit OTP will be issued here.
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -1533,7 +1652,12 @@ const Booking = () => {
 
                 <div className="flex gap-4 mt-6">
                   <button type="button" onClick={handleBack} disabled={isSubmitting} className="btn-secondary w-1/3">Back</button>
-                  <button type="submit" disabled={isSubmitting} className="btn-primary w-2/3">
+                  <button 
+                    type="submit" 
+                    disabled={isSubmitting || !getPhoneValidationStatus().isValid} 
+                    className={`btn-primary w-2/3 ${!getPhoneValidationStatus().isValid && !isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={!getPhoneValidationStatus().isValid ? 'Please enter a valid 10-digit Indian contact mobile number to proceed' : ''}
+                  >
                     {isSubmitting ? 'Processing...' : 'Confirm Booking'}
                   </button>
                 </div>

@@ -116,6 +116,18 @@ const createBooking = async (req, res) => {
       }
     }
 
+    // Contact Phone Number Validation (strictly 10 digits)
+    if (bookingData.phone) {
+      const cleanPhone = String(bookingData.phone).replace(/\D/g, '').slice(-10);
+      if (cleanPhone.length !== 10) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid contact phone number. Please provide a valid 10-digit mobile number.'
+        });
+      }
+      bookingData.phone = cleanPhone;
+    }
+
     // 1. ESG Carbon Footprint Calculation
     const distance = parseFloat(bookingData.totalDistance) || 15.0; // fallback to 15km if not provided
     let emissionRate = 200; // grams per km default
