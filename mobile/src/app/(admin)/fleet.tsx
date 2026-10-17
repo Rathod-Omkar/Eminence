@@ -30,6 +30,7 @@ interface VehicleItem {
   capacityWeight: number;
   status: string;
   model?: string;
+  fuelType?: 'Diesel' | 'Petrol' | 'CNG';
 }
 
 export default function FleetManagementScreen() {
@@ -74,9 +75,16 @@ export default function FleetManagementScreen() {
       if (vehiclesRes.status === 'fulfilled' && vehiclesRes.value.data?.vehicles) {
         setVehicles(vehiclesRes.value.data.vehicles);
       } else {
+        // 8 Limited Company Fleet Tempos
         setVehicles([
-          { id: 'veh-1', registrationNumber: 'MH-12-RN-4821', type: 'Tata Ace (Small)', capacityWeight: 750, status: 'active' },
-          { id: 'veh-2', registrationNumber: 'MH-14-BT-9902', type: 'Bolero Maxi (Medium)', capacityWeight: 1250, status: 'active' },
+          { id: 'veh-bolero-1', registrationNumber: 'MH-12-BL-0001', type: 'Bolero Maxi (Medium)', model: 'Mahindra Bolero Pickup', fuelType: 'Diesel', capacityWeight: 1750, status: 'active' },
+          { id: 'veh-dost-1', registrationNumber: 'MH-12-DT-0002', type: 'Dost (Medium)', model: 'Ashok Leyland Dost', fuelType: 'Diesel', capacityWeight: 1500, status: 'active' },
+          { id: 'veh-ace-petrol-1', registrationNumber: 'MH-12-TC-0003', type: 'Tata Ace (Small)', model: 'Tata Ace Gold', fuelType: 'Petrol', capacityWeight: 750, status: 'active' },
+          { id: 'veh-ace-cng-1', registrationNumber: 'MH-12-TC-0004', type: 'Tata Ace (Small)', model: 'Tata Ace Gold CNG', fuelType: 'CNG', capacityWeight: 750, status: 'active' },
+          { id: 'veh-ace-cng-2', registrationNumber: 'MH-12-TC-0005', type: 'Tata Ace (Small)', model: 'Tata Ace Gold CNG', fuelType: 'CNG', capacityWeight: 750, status: 'active' },
+          { id: 'veh-ace-cng-3', registrationNumber: 'MH-12-TC-0006', type: 'Tata Ace (Small)', model: 'Tata Ace Gold CNG', fuelType: 'CNG', capacityWeight: 750, status: 'active' },
+          { id: 'veh-chotta-1', registrationNumber: 'MH-12-CH-0007', type: 'Tata Ace (Small)', model: 'Mahindra Chotta Hatti', fuelType: 'Diesel', capacityWeight: 750, status: 'active' },
+          { id: 'veh-chotta-2', registrationNumber: 'MH-12-CH-0008', type: 'Tata Ace (Small)', model: 'Mahindra Chotta Hatti', fuelType: 'Diesel', capacityWeight: 750, status: 'active' },
         ]);
       }
     } catch (err) {
@@ -263,9 +271,38 @@ export default function FleetManagementScreen() {
             {vehicles.map((veh) => (
               <View key={veh.id} style={styles.card}>
                 <View style={styles.cardTop}>
-                  <View>
-                    <Text style={styles.cardName}>{veh.registrationNumber}</Text>
-                    <Text style={styles.cardSub}>Type: {veh.type}</Text>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Text style={styles.cardName}>{veh.registrationNumber}</Text>
+                      {veh.fuelType && (
+                        <View
+                          style={[
+                            styles.fuelBadge,
+                            veh.fuelType === 'CNG'
+                              ? styles.fuelBadgeCng
+                              : veh.fuelType === 'Petrol'
+                              ? styles.fuelBadgePetrol
+                              : styles.fuelBadgeDiesel,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.fuelBadgeText,
+                              veh.fuelType === 'CNG'
+                                ? styles.fuelBadgeCngText
+                                : veh.fuelType === 'Petrol'
+                                ? styles.fuelBadgePetrolText
+                                : styles.fuelBadgeDieselText,
+                            ]}
+                          >
+                            {veh.fuelType === 'CNG' ? '🌱 CNG' : veh.fuelType === 'Petrol' ? '⛽ Petrol' : '⛽ Diesel'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.cardSub}>
+                      {veh.model ? `${veh.model} • ` : ''}Type: {veh.type}
+                    </Text>
                   </View>
                   <View style={styles.statusBadge}>
                     <Text style={[styles.statusText, { color: '#f08b65' }]}>
@@ -621,5 +658,36 @@ const styles = StyleSheet.create({
     color: '#f4f6f8',
     fontSize: 13,
     fontWeight: '700',
+  },
+  fuelBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  fuelBadgeCng: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+  },
+  fuelBadgePetrol: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: 'rgba(56, 189, 248, 0.4)',
+  },
+  fuelBadgeDiesel: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  fuelBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  fuelBadgeCngText: {
+    color: '#22c55e',
+  },
+  fuelBadgePetrolText: {
+    color: '#38bdf8',
+  },
+  fuelBadgeDieselText: {
+    color: '#f59e0b',
   },
 });

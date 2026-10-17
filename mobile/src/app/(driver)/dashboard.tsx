@@ -11,6 +11,7 @@ import {
   TextInput,
   Alert,
   Vibration,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -36,6 +37,8 @@ export default function DriverDashboard() {
 
   // Active Trip Progression (TC-022)
   const [activeTrip, setActiveTrip] = useState<any>(null);
+  const [queuedTrips, setQueuedTrips] = useState<any[]>([]);
+  const [activatingBookingId, setActivatingBookingId] = useState<string | null>(null);
   const [tripStep, setTripStep] = useState<'assigned' | 'arrived' | 'in_transit' | 'arrived_dest' | 'completed'>('assigned');
   const [enteredOtp, setEnteredOtp] = useState('');
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
@@ -126,11 +129,17 @@ export default function DriverDashboard() {
       }
     });
 
+    socket.on('dispatch:assigned', (data: any) => {
+      if (!data || data.driverId === user?.id || !data.driverId) {
+        fetchDriverData();
+      }
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token]);
+  }, [token, user?.id]);
 
   const [driverMetrics, setDriverMetrics] = useState<any>({
     completedOrders: 0,
@@ -148,11 +157,53 @@ export default function DriverDashboard() {
 
         const metricsRes = await api.get(`/api/drivers/${user.id}/metrics`);
         if (metricsRes.data?.success && metricsRes.data?.metrics) {
-          setDriverMetrics(metricsRes.data.metrics);
+          const metrics = metricsRes.data.metrics;
+          setDriverMetrics(metrics);
+          setQueuedTrips(metrics.queuedTrips || []);
+
+          if (metrics.activeTrip && !activeTrip) {
+            setActiveTrip({
+              bookingId: metrics.activeTrip.id,
+              pickupAddress: metrics.activeTrip.pickupAddress,
+              dropAddress: metrics.activeTrip.dropAddress || 'Multi-stop delivery point',
+              fare: Number(metrics.activeTrip.estimatedFare) || 0,
+              goodsType: metrics.activeTrip.goodsType || metrics.activeTrip.cargoType || 'Commercial Freight',
+              weight: metrics.activeTrip.weight || 'Standard Payload',
+              tempoType: metrics.activeTrip.tempoType || (metrics.activeTrip.vehicle?.type) || 'Tempo',
+              customerName: metrics.activeTrip.customer?.name || 'Commercial Client',
+              customerPhone: metrics.activeTrip.customer?.phone || '',
+              queuePosition: metrics.activeTrip.queuePosition || 1,
+            });
+            if (metrics.activeTrip.status === 'in_transit') {
+              setTripStep('in_transit');
+            } else if (metrics.activeTrip.status === 'arrived') {
+              setTripStep('arrived');
+            } else {
+              setTripStep('assigned');
+            }
+          }
         }
       }
     } catch (e) {
       console.log('Using default payslip and metrics data');
+    }
+  };
+
+  const handleActivateQueuedTrip = async (bookingId: string) => {
+    if (!user?.id || !bookingId) return;
+    setActivatingBookingId(bookingId);
+    try {
+      const res = await api.put(`/api/drivers/${user.id}/queue/activate/${bookingId}`);
+      if (res.data?.success) {
+        Alert.alert('Priority Updated', 'This delivery has been promoted to your active stop.');
+        setActiveTrip(null);
+        await fetchDriverData();
+      }
+    } catch (err: any) {
+      console.log('Error activating queued trip:', err);
+      Alert.alert('Error', err?.response?.data?.message || 'Could not update queue priority');
+    } finally {
+      setActivatingBookingId(null);
     }
   };
 
@@ -318,6 +369,7 @@ export default function DriverDashboard() {
     setActiveTrip(null);
     setTripStep('assigned');
     setPodHash('');
+    fetchDriverData();
   };
 
   const handleLogout = async () => {
@@ -359,14 +411,23 @@ export default function DriverDashboard() {
         {/* Driver Performance & Earnings Summary */}
         <View style={styles.metricsRow}>
           <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>COMPLETED ORDERS</Text>
+            <Text style={styles.metricLabel}>COMPLETED</Text>
             <Text style={styles.metricValue}>{driverMetrics.completedOrders || 0}</Text>
-            <Text style={styles.metricSub}>Directly Appointed</Text>
+            <Text style={styles.metricSub}>Delivered</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={[styles.metricLabel, { color: '#38bdf8' }]}>ASSIGNED</Text>
+            <Text style={[styles.metricValue, { color: '#38bdf8' }]}>
+              {(driverMetrics.activeOrdersCount || 0) > 1
+                ? `1 + ${(driverMetrics.activeOrdersCount || 0) - 1} Q`
+                : `${driverMetrics.activeOrdersCount || 0} Active`}
+            </Text>
+            <Text style={styles.metricSub}>Duty Queue</Text>
           </View>
           <View style={[styles.metricCard, styles.metricCardPrimary]}>
-            <Text style={[styles.metricLabel, { color: '#fb923c' }]}>TOTAL EARNED</Text>
+            <Text style={[styles.metricLabel, { color: '#fb923c' }]}>EARNED</Text>
             <Text style={[styles.metricValue, { color: '#fb923c' }]}>₹{(driverMetrics.totalEarnings || 0).toLocaleString()}</Text>
-            <Text style={styles.metricSub}>Life-to-Date Revenue</Text>
+            <Text style={styles.metricSub}>Platform</Text>
           </View>
         </View>
 
@@ -418,7 +479,12 @@ export default function DriverDashboard() {
         {activeTrip && (
           <View style={styles.activeTripCard}>
             <View style={styles.activeTripHeader}>
-              <Text style={styles.activeTripTitle}>ACTIVE SHIPMENT IN PROGRESS</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={styles.activeTripTitle}>ACTIVE SHIPMENT IN PROGRESS</Text>
+                <View style={styles.activePill}>
+                  <Text style={styles.activePillText}>Stop #1 (Active)</Text>
+                </View>
+              </View>
               <Text style={styles.activeTripRef}>{activeTrip.bookingId}</Text>
             </View>
 
@@ -436,6 +502,19 @@ export default function DriverDashboard() {
               <View style={styles.stepBox}>
                 <Text style={styles.stepHeading}>Step 1: Proceed to Pickup Point</Text>
                 <Text style={styles.stepAddress}>📍 {activeTrip.pickupAddress}</Text>
+
+                {queuedTrips.length > 0 && (
+                  <View style={styles.nextStopPreview}>
+                    <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
+                    <Text style={styles.nextStopRoute} numberOfLines={1}>
+                      🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
+                    </Text>
+                    <Text style={styles.nextStopFare}>
+                      Payout: ₹{queuedTrips[0].estimatedFare || 0} • {queuedTrips.length > 1 ? `+${queuedTrips.length - 1} more queued` : 'Final stop in queue'}
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity
                   style={styles.stepActionBtn}
                   onPress={handleDriverArrived}
@@ -453,6 +532,19 @@ export default function DriverDashboard() {
                 <Text style={styles.stepSubtitle}>
                   Inspect goods ({activeTrip.goodsType}, {activeTrip.weight}) and ask customer for Start OTP.
                 </Text>
+
+                {queuedTrips.length > 0 && (
+                  <View style={styles.nextStopPreview}>
+                    <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
+                    <Text style={styles.nextStopRoute} numberOfLines={1}>
+                      🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
+                    </Text>
+                    <Text style={styles.nextStopFare}>
+                      Payout: ₹{queuedTrips[0].estimatedFare || 0} • {queuedTrips.length > 1 ? `+${queuedTrips.length - 1} more queued` : 'Final stop in queue'}
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity
                   style={[styles.stepActionBtn, { backgroundColor: '#f59e0b' }]}
                   onPress={() => setIsOtpModalOpen(true)}
@@ -507,6 +599,18 @@ export default function DriverDashboard() {
                   )}
                 </View>
 
+                {queuedTrips.length > 0 && (
+                  <View style={styles.nextStopPreview}>
+                    <Text style={styles.nextStopTitle}>⚡ UP NEXT: STOP #2 IN QUEUE</Text>
+                    <Text style={styles.nextStopRoute} numberOfLines={1}>
+                      🎯 {queuedTrips[0].dropAddress || queuedTrips[0].pickupAddress}
+                    </Text>
+                    <Text style={styles.nextStopFare}>
+                      Payout: ₹{queuedTrips[0].estimatedFare || 0} • {queuedTrips.length > 1 ? `+${queuedTrips.length - 1} more queued` : 'Final stop in queue'}
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity
                   style={[styles.stepActionBtn, { backgroundColor: photoUri ? '#22c55e' : '#475569' }]}
                   onPress={handleCompleteDelivery}
@@ -532,6 +636,73 @@ export default function DriverDashboard() {
                 </TouchableOpacity>
               </View>
             )}
+          </View>
+        )}
+
+        {/* Multi-Delivery Queue Stack */}
+        {queuedTrips.length > 0 && (
+          <View style={styles.queueContainer}>
+            <View style={styles.queueHeaderRow}>
+              <View>
+                <Text style={styles.queueHeaderTitle}>Assigned Delivery Queue</Text>
+                <Text style={styles.queueHeaderSubtitle}>
+                  Auto-promotes when current stop finishes
+                </Text>
+              </View>
+              <View style={styles.queueCountBadge}>
+                <Text style={styles.queueCountText}>{queuedTrips.length} Up Next</Text>
+              </View>
+            </View>
+
+            {queuedTrips.map((queued: any, idx: number) => (
+              <View key={queued.id} style={styles.queueCard}>
+                <View style={styles.queueCardHeader}>
+                  <View style={styles.queueStopBadge}>
+                    <Text style={styles.queueStopBadgeText}>
+                      Stop #{idx + 2} {idx === 0 ? '(Up Next)' : 'in Queue'}
+                    </Text>
+                  </View>
+                  <Text style={styles.queueId}>#{queued.id.slice(0, 8)}</Text>
+                  {queued.tempoType && (
+                    <Text style={styles.queueTempo}>{queued.tempoType}</Text>
+                  )}
+                </View>
+
+                <View style={styles.queueAddressBlock}>
+                  <View style={styles.queueAddressRow}>
+                    <Text style={styles.dotGreen}>●</Text>
+                    <Text style={styles.queueAddressText} numberOfLines={1}>
+                      {queued.pickupAddress}
+                    </Text>
+                  </View>
+                  <View style={styles.queueAddressRow}>
+                    <Text style={styles.dotOrange}>▼</Text>
+                    <Text style={[styles.queueAddressText, { color: '#f08b65' }]} numberOfLines={1}>
+                      {queued.dropAddress || 'Scheduled Delivery Point'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.queueMetaRow}>
+                  <Text style={styles.queueMetaText}>
+                    {queued.customer?.name || 'Commercial Client'} • {queued.cargoType || queued.goodsType || 'Freight'}
+                  </Text>
+                  <Text style={styles.queueFare}>₹{Number(queued.estimatedFare || 0).toLocaleString()}</Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.makeActiveBtn}
+                  onPress={() => handleActivateQueuedTrip(queued.id)}
+                  disabled={activatingBookingId === queued.id}
+                >
+                  {activatingBookingId === queued.id ? (
+                    <ActivityIndicator size="small" color="#fb923c" />
+                  ) : (
+                    <Text style={styles.makeActiveBtnText}>Make Active Stop Now ⚡</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ))}
           </View>
         )}
 
@@ -1264,5 +1435,172 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  activePill: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  activePillText: {
+    color: '#10b981',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  nextStopPreview: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  nextStopTitle: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  nextStopRoute: {
+    color: '#f4f6f8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  nextStopFare: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  queueContainer: {
+    marginBottom: 20,
+  },
+  queueHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  queueHeaderTitle: {
+    color: '#f4f6f8',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  queueHeaderSubtitle: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  queueCountBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  queueCountText: {
+    color: '#f59e0b',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  queueCard: {
+    backgroundColor: '#1b2230',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    marginBottom: 10,
+  },
+  queueCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  queueStopBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  queueStopBadgeText: {
+    color: '#fbbf24',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  queueId: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  queueTempo: {
+    color: '#38bdf8',
+    fontSize: 11,
+    backgroundColor: '#0f141f',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  queueAddressBlock: {
+    backgroundColor: '#0f141f',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    gap: 6,
+  },
+  queueAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dotGreen: {
+    color: '#22c55e',
+    fontSize: 10,
+  },
+  dotOrange: {
+    color: '#e86331',
+    fontSize: 10,
+  },
+  queueAddressText: {
+    color: '#f4f6f8',
+    fontSize: 12,
+    flex: 1,
+  },
+  queueMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  queueMetaText: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    flex: 1,
+  },
+  queueFare: {
+    color: '#22c55e',
+    fontSize: 16,
+    fontWeight: '800',
+    marginLeft: 8,
+  },
+  makeActiveBtn: {
+    backgroundColor: 'rgba(232, 99, 49, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(232, 99, 49, 0.5)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  makeActiveBtnText: {
+    color: '#fb923c',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

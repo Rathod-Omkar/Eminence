@@ -22,6 +22,7 @@ interface BookingItem {
   goodsType: string;
   estimatedFare: number;
   driverId?: string | null;
+  queuePosition?: number;
   driver?: {
     id: string;
     name: string;
@@ -117,6 +118,16 @@ export default function DispatchScreen() {
   const pendingBookings = bookings.filter((b) => b.status === 'pending' || !b.driverId);
   const displayedBookings = filter === 'pending' ? pendingBookings : bookings;
 
+  const driverQueueMap = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    bookings.forEach((b) => {
+      if (b.driverId && !['completed', 'cancelled'].includes(b.status)) {
+        map[b.driverId] = (map[b.driverId] || 0) + 1;
+      }
+    });
+    return map;
+  }, [bookings]);
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -128,6 +139,19 @@ export default function DispatchScreen() {
         <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
           <Text style={styles.refreshBtnText}>↻</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* 8 Tempos Limited Fleet Status Card */}
+      <View style={styles.fleetBanner}>
+        <View style={styles.fleetBannerHeader}>
+          <Text style={styles.fleetBannerTitle}>Company Fleet (8 Limited Tempos)</Text>
+          <View style={styles.fleetQueueActiveBadge}>
+            <Text style={styles.fleetQueueActiveText}>Queue Engine Active</Text>
+          </View>
+        </View>
+        <Text style={styles.fleetBannerModels}>
+          • 1x Bolero Pickup (Diesel)  • 1x Dost (Diesel){'\n'}• 4x Tata Ace (1 Petrol, 3 CNG)  • 2x Chotta Hatti (Diesel)
+        </Text>
       </View>
 
       {/* KPI Stats */}
@@ -191,7 +215,32 @@ export default function DispatchScreen() {
             return (
               <View key={b.id} style={styles.bookingCard}>
                 <View style={styles.cardHeader}>
-                  <Text style={styles.bookingId}>#{b.id.slice(0, 8)}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.bookingId}>#{b.id.slice(0, 8)}</Text>
+                    {b.driverId && (
+                      <View
+                        style={[
+                          styles.queuePosBadge,
+                          b.queuePosition === 1 || !b.queuePosition
+                            ? styles.queuePosActive
+                            : styles.queuePosQueued,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.queuePosText,
+                            b.queuePosition === 1 || !b.queuePosition
+                              ? styles.queuePosActiveText
+                              : styles.queuePosQueuedText,
+                          ]}
+                        >
+                          {b.queuePosition === 1 || !b.queuePosition
+                            ? '🎯 Active Delivery'
+                            : `⏳ Stop #${b.queuePosition} (Queue)`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <View
                     style={[
                       styles.statusPill,
@@ -300,20 +349,55 @@ export default function DispatchScreen() {
               </View>
             ) : (
               <ScrollView style={{ maxHeight: 280 }}>
-                {activeDrivers.map((drv) => (
-                  <TouchableOpacity
-                    key={drv.id}
-                    style={styles.driverSelectCard}
-                    onPress={() => handleAssignDriver(drv.id)}
-                  >
-                    <View>
-                      <Text style={styles.driverSelectName}>{drv.name}</Text>
-                      <Text style={styles.driverSelectPhone}>{drv.phone}</Text>
-                      <Text style={styles.driverSelectLicense}>License: {drv.licenseNumber}</Text>
-                    </View>
-                    <Text style={styles.selectArrow}>Assign ›</Text>
-                  </TouchableOpacity>
-                ))}
+                {activeDrivers.map((drv) => {
+                  const queuedCount = driverQueueMap[drv.id] || 0;
+                  return (
+                    <TouchableOpacity
+                      key={drv.id}
+                      style={styles.driverSelectCard}
+                      onPress={() => handleAssignDriver(drv.id)}
+                    >
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Text style={styles.driverSelectName}>{drv.name}</Text>
+                          <View
+                            style={[
+                              styles.drvQueueBadge,
+                              queuedCount === 0
+                                ? styles.drvQueueAvailable
+                                : queuedCount === 1
+                                ? styles.drvQueueSingle
+                                : styles.drvQueueMultiple,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.drvQueueText,
+                                queuedCount === 0
+                                  ? styles.drvQueueAvailableText
+                                  : queuedCount === 1
+                                  ? styles.drvQueueSingleText
+                                  : styles.drvQueueMultipleText,
+                              ]}
+                            >
+                              {queuedCount === 0
+                                ? '🟢 Available (0 in Queue)'
+                                : queuedCount === 1
+                                ? '🟡 1 in Queue'
+                                : `🟠 ${queuedCount} in Queue`}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.driverSelectPhone}>{drv.phone}</Text>
+                        <Text style={styles.driverSelectLicense}>
+                          License: {drv.licenseNumber}
+                          {queuedCount > 0 ? ' • Next in sequence' : ' • Immediate dispatch'}
+                        </Text>
+                      </View>
+                      <Text style={styles.selectArrow}>Assign ›</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             )}
 
@@ -667,5 +751,99 @@ const styles = StyleSheet.create({
     color: '#c9d3df',
     fontSize: 13,
     fontWeight: '600',
+  },
+  fleetBanner: {
+    backgroundColor: '#1b2230',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(240, 139, 101, 0.3)',
+  },
+  fleetBannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  fleetBannerTitle: {
+    color: '#f4f6f8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  fleetQueueActiveBadge: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  fleetQueueActiveText: {
+    color: '#22c55e',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  fleetBannerModels: {
+    color: '#a2b2c7',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  queuePosBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  queuePosActive: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+  },
+  queuePosQueued: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  queuePosText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  queuePosActiveText: {
+    color: '#22c55e',
+  },
+  queuePosQueuedText: {
+    color: '#f59e0b',
+  },
+  drvQueueBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  drvQueueAvailable: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+  },
+  drvQueueSingle: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  drvQueueMultiple: {
+    backgroundColor: 'rgba(249, 115, 22, 0.15)',
+    borderColor: 'rgba(249, 115, 22, 0.4)',
+  },
+  drvQueueText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  drvQueueAvailableText: {
+    color: '#22c55e',
+  },
+  drvQueueSingleText: {
+    color: '#f59e0b',
+  },
+  drvQueueMultipleText: {
+    color: '#fb923c',
   },
 });
