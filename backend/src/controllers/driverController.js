@@ -195,12 +195,33 @@ const downloadPayslip = async (req, res) => {
 
 const updateLocation = async (req, res) => {
   try {
-    const { lat, lng } = req.body;
+    const { lat, lng, speed } = req.body;
     const driverId = req.user.id;
     if (lat && lng) {
       await Driver.update({ currentLat: lat, currentLng: lng }, { where: { id: driverId } });
-      // In a real scenario, we'd also emit a socket event here so customers tracking the driver get the update
-      // req.app.get('io').to(driverId).emit('trip:location_update', { lat, lng });
+      try {
+        const { getIo } = require('../socket');
+        const { Booking } = require('../models');
+        const io = getIo();
+        const activeBookings = await Booking.findAll({
+          where: {
+            driverId,
+            status: ['driver_assigned', 'arrived', 'in_transit']
+          },
+          attributes: ['id']
+        });
+        activeBookings.forEach((b) => {
+          io.to(`trip_${b.id}`).emit('trip:location_update', {
+            bookingId: b.id,
+            lat: Number(lat),
+            lng: Number(lng),
+            speed: speed !== undefined ? Number(speed) : 35,
+            timestamp: new Date().toISOString()
+          });
+        });
+      } catch (socketErr) {
+        // Socket may not be initialized in isolated tests
+      }
     }
     res.status(200).json({ success: true });
   } catch (error) {

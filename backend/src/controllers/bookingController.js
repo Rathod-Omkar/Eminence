@@ -337,6 +337,22 @@ const completeBooking = async (req, res) => {
 
     await booking.save();
 
+    // Broadcast completion to customer tracking room
+    try {
+      const { getIo } = require('../socket');
+      const io = getIo();
+      io.to(`trip_${booking.id}`).emit('booking_status_updated', {
+        bookingId: booking.id,
+        status: 'completed',
+        podHash: booking.podHash,
+        booking
+      });
+      io.to(`trip_${booking.id}`).emit('trip:status', {
+        bookingId: booking.id,
+        status: 'completed'
+      });
+    } catch (socketErr) {}
+
     // Advance driver's delivery queue upon completing current trip
     if (booking.driverId) {
       const remainingTrips = await Booking.findAll({
@@ -452,6 +468,21 @@ const updateBookingStatus = async (req, res) => {
 
     await booking.save();
 
+    // Broadcast status change to customer tracking room
+    try {
+      const { getIo } = require('../socket');
+      const io = getIo();
+      io.to(`trip_${booking.id}`).emit('booking_status_updated', {
+        bookingId: booking.id,
+        status: booking.status,
+        booking
+      });
+      io.to(`trip_${booking.id}`).emit('trip:status', {
+        bookingId: booking.id,
+        status: booking.status
+      });
+    } catch (socketErr) {}
+
     // Advance driver's delivery queue if admin completes trip
     if (status === 'completed' && booking.driverId) {
       const remainingTrips = await Booking.findAll({
@@ -489,7 +520,7 @@ const getBookingById = async (req, res) => {
     const booking = await Booking.findByPk(req.params.id, {
       include: [
         { model: Customer, as: 'customer', attributes: ['id', 'name', 'phone'] },
-        { model: Driver, as: 'driver', attributes: ['id', 'name', 'phone', 'licenseNumber', 'rating'] },
+        { model: Driver, as: 'driver', attributes: ['id', 'name', 'phone', 'licenseNumber', 'rating', 'currentLat', 'currentLng'] },
         { model: Vehicle, as: 'vehicle', attributes: ['id', 'registrationNumber', 'type', 'model'] }
       ]
     });

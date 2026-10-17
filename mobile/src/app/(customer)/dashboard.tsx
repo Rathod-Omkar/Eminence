@@ -369,21 +369,6 @@ export default function CustomerDashboard() {
           </TouchableOpacity>
         </View>
 
-        {/* B2B Corporate Portal CTA */}
-        <TouchableOpacity
-          style={styles.b2bBanner}
-          onPress={() => router.push('/(customer)/business' as any)}
-        >
-          <View style={styles.b2bLeft}>
-            <Text style={styles.b2bTag}>ENTERPRISE LOGISTICS</Text>
-            <Text style={styles.b2bTitle}>🏢 Corporate Fleet & Net-30 Portal</Text>
-            <Text style={styles.b2bSubtitle}>
-              Dedicated tempo contracts, GST tax invoices & ₹5L credit limit
-            </Text>
-          </View>
-          <Text style={styles.b2bArrow}>→</Text>
-        </TouchableOpacity>
-
         {/* TAB 1: RIDE HISTORY (TC-010, TC-013) */}
         {activeTab === 'history' && (
           <View>
@@ -540,7 +525,7 @@ export default function CustomerDashboard() {
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.referralTitle}>Refer & Earn ₹100</Text>
                   <Text style={styles.referralSub}>
-                    Share your code with other businesses or friends to receive booking credits.
+                    Share your code with friends and family to receive booking credits.
                   </Text>
                 </View>
               </View>

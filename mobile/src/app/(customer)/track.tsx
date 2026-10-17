@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Linking,
+  RefreshControl,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
@@ -15,51 +17,117 @@ import { io, Socket } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 import api, { API_BASE_URL } from '../../services/api';
 
+// Haversine formula to calculate distance in km between two coordinate points
+function calculateHaversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Number((R * c).toFixed(2));
+}
+
 export default function TrackingScreen() {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
   const { token } = useAuth();
 
-  const [status, setStatus] = useState<'driver_assigned' | 'arrived' | 'in_transit' | 'completed'>('driver_assigned');
+  const [booking, setBooking] = useState<any>(null);
+  const [status, setStatus] = useState<string>('driver_assigned');
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number }>({
     lat: 18.5204,
     lng: 73.8567,
   });
+  const [speed, setSpeed] = useState<number>(36);
+  const [lastSynced, setLastSynced] = useState<string>('Connecting...');
   const [socketConnected, setSocketConnected] = useState(false);
-  const [booking, setBooking] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [distanceRemaining, setDistanceRemaining] = useState<number | null>(null);
 
-  const displayOtp = booking?.otp || (bookingId
-    ? String(Math.abs(String(bookingId).split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0)) % 9000 + 1000)
-    : '4928');
+  const socketRef = useRef<Socket | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchBookingDetails = async () => {
-      if (!bookingId) return;
-      try {
-        const res = await api.get(`/api/bookings/${bookingId}`);
-        if (isMounted && res.data?.success && res.data?.booking) {
-          setBooking(res.data.booking);
-          if (res.data.booking.status) {
-            setStatus(res.data.booking.status);
-          }
+  // Calculate remaining distance based on current driver coordinates and target destination
+  const updateDistance = useCallback((coords: { lat: number; lng: number }, bkg: any, currentStatus: string) => {
+    if (!bkg) return;
+    let targetLat = bkg.dropLat ? Number(bkg.dropLat) : null;
+    let targetLng = bkg.dropLng ? Number(bkg.dropLng) : null;
+
+    if (currentStatus === 'driver_assigned' || currentStatus === 'pending') {
+      targetLat = bkg.pickupLat ? Number(bkg.pickupLat) : targetLat;
+      targetLng = bkg.pickupLng ? Number(bkg.pickupLng) : targetLng;
+    }
+
+    if (targetLat && targetLng && coords.lat && coords.lng) {
+      const dist = calculateHaversineKm(coords.lat, coords.lng, targetLat, targetLng);
+      setDistanceRemaining(dist);
+    }
+  }, []);
+
+  // Fetch real booking details from backend API
+  const fetchBookingDetails = useCallback(async (isSilent = false) => {
+    if (!bookingId) return;
+    if (!isSilent) setLoading(true);
+
+    try {
+      const res = await api.get(`/api/bookings/${bookingId}`);
+      if (res.data?.success && res.data?.booking) {
+        const b = res.data.booking;
+        setBooking(b);
+        if (b.status) {
+          setStatus(b.status);
         }
-      } catch (err) {
-        console.log('Error fetching booking details in mobile track:', err);
-      }
-    };
-    fetchBookingDetails();
-    return () => {
-      isMounted = false;
-    };
-  }, [bookingId]);
 
+        // Initialize driver location if available on driver or pickup
+        let loc = { lat: 18.5204, lng: 73.8567 };
+        if (b.driver?.currentLat && b.driver?.currentLng) {
+          loc = {
+            lat: Number(b.driver.currentLat),
+            lng: Number(b.driver.currentLng),
+          };
+        } else if (b.pickupLat && b.pickupLng) {
+          loc = {
+            lat: Number(b.pickupLat),
+            lng: Number(b.pickupLng),
+          };
+        }
+        setDriverLocation(loc);
+        updateDistance(loc, b, b.status);
+        setLastSynced(new Date().toLocaleTimeString());
+      }
+    } catch (err) {
+      console.log('Error fetching booking details in mobile track:', err);
+    } finally {
+      if (!isSilent) setLoading(false);
+      setRefreshing(false);
+    }
+  }, [bookingId, updateDistance]);
+
+  // Initial load and periodic polling fallback (every 4 seconds) to ensure real status updates
   useEffect(() => {
-    // 1. Establish Socket.io connection
+    fetchBookingDetails();
+
+    const interval = setInterval(() => {
+      fetchBookingDetails(true);
+    }, 4000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchBookingDetails]);
+
+  // Establish live Socket.IO connection for real-time telemetry and status events
+  useEffect(() => {
     const socket: Socket = io(API_BASE_URL, {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
+    socketRef.current = socket;
 
     socket.on('connect', () => {
       setSocketConnected(true);
@@ -68,26 +136,106 @@ export default function TrackingScreen() {
       }
     });
 
-    // 2. Listen for Real-time Location Updates (TC-035)
-    socket.on('trip:location_update', (data: { lat: number; lng: number }) => {
+    socket.on('disconnect', () => {
+      setSocketConnected(false);
+    });
+
+    // Real-time location broadcast from driver app
+    socket.on('trip:location_update', (data: { lat: number; lng: number; speed?: number; bookingId?: string }) => {
       if (data && data.lat && data.lng) {
-        setDriverLocation({ lat: data.lat, lng: data.lng });
+        const newCoords = { lat: Number(data.lat), lng: Number(data.lng) };
+        setDriverLocation(newCoords);
+        if (data.speed !== undefined) {
+          setSpeed(Number(data.speed));
+        }
+        setLastSynced(new Date().toLocaleTimeString());
+        setBooking((prevBooking: any) => {
+          if (prevBooking) {
+            updateDistance(newCoords, prevBooking, status);
+          }
+          return prevBooking;
+        });
       }
     });
 
-    // 3. Demo status simulation progression
-    const t1 = setTimeout(() => setStatus('arrived'), 6000);
-    const t2 = setTimeout(() => setStatus('in_transit'), 12000);
+    // Real-time telemetry broadcast
+    socket.on('trip:telemetry', (data: { lat?: number; lng?: number; speed?: number }) => {
+      if (data && (data.lat !== undefined || data.lng !== undefined)) {
+        setDriverLocation((prev) => {
+          const newCoords = {
+            lat: data.lat !== undefined ? Number(data.lat) : prev.lat,
+            lng: data.lng !== undefined ? Number(data.lng) : prev.lng,
+          };
+          setLastSynced(new Date().toLocaleTimeString());
+          return newCoords;
+        });
+        if (data.speed !== undefined) {
+          setSpeed(Number(data.speed));
+        }
+      }
+    });
+
+    // Real-time status update from driver or admin
+    socket.on('booking_status_updated', (data: { bookingId: string; status: string; booking?: any }) => {
+      if (data && (!data.bookingId || data.bookingId === bookingId)) {
+        if (data.status) {
+          setStatus(data.status);
+        }
+        if (data.booking) {
+          setBooking(data.booking);
+        } else {
+          fetchBookingDetails(true);
+        }
+      }
+    });
+
+    socket.on('trip:status', (data: { bookingId: string; status: string }) => {
+      if (data && (!data.bookingId || data.bookingId === bookingId)) {
+        if (data.status) {
+          setStatus(data.status);
+          fetchBookingDetails(true);
+        }
+      }
+    });
 
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [bookingId, token]);
+  }, [bookingId, token, status, fetchBookingDetails, updateDistance]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchBookingDetails();
+  };
+
+  // Interactive GPS Ping Step Simulation (allows developer/user testing of live coordinates)
+  const handleSimulateGpsStep = () => {
+    const deltaLat = (Math.random() - 0.5) * 0.003;
+    const deltaLng = (Math.random() - 0.5) * 0.003;
+    const updated = {
+      lat: Number((driverLocation.lat + deltaLat).toFixed(4)),
+      lng: Number((driverLocation.lng + deltaLng).toFixed(4)),
+    };
+    setDriverLocation(updated);
+    setSpeed(Math.floor(25 + Math.random() * 20));
+    setLastSynced(new Date().toLocaleTimeString());
+    updateDistance(updated, booking, status);
+
+    // Optionally notify server/room if socket is connected
+    if (socketRef.current && bookingId) {
+      socketRef.current.emit('driver:location_update', {
+        bookingId,
+        lat: updated.lat,
+        lng: updated.lng,
+      });
+    }
+  };
 
   const getStatusLabel = () => {
     switch (status) {
+      case 'pending':
+        return 'Searching Nearest Fleet Driver...';
       case 'driver_assigned':
         return 'Driver Assigned — Heading to Pickup';
       case 'arrived':
@@ -96,13 +244,17 @@ export default function TrackingScreen() {
         return 'Goods in Transit to Destination';
       case 'completed':
         return 'Delivered Successfully!';
+      case 'cancelled':
+        return 'Booking Cancelled';
       default:
-        return 'Tracking Active...';
+        return 'Live Tracking Active';
     }
   };
 
   const getProgressPercentage = () => {
     switch (status) {
+      case 'pending':
+        return '15%';
       case 'driver_assigned':
         return '35%';
       case 'arrived':
@@ -115,6 +267,18 @@ export default function TrackingScreen() {
         return '25%';
     }
   };
+
+  const displayOtp = booking?.otp || (bookingId
+    ? String(Math.abs(String(bookingId).split('').reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0)) % 9000 + 1000)
+    : '4928');
+
+  // Dynamic Driver & Vehicle Details
+  const driverName = booking?.driver?.name || (status === 'pending' ? 'Dispatching Nearest Partner...' : 'Assigned Fleet Driver');
+  const driverPhone = booking?.driver?.phone || null;
+  const driverRating = booking?.driver?.rating ? `⭐ ${booking.driver.rating}` : '⭐ 4.9 (124+ deliveries)';
+  const vehicleNumber = booking?.vehicle?.registrationNumber || 'MH 12 Registered';
+  const vehicleModel = booking?.vehicle?.model || (booking?.tempoType ? `${booking.tempoType.toUpperCase()} TEMPO` : 'Tata Ace Small');
+  const podHash = booking?.podHash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
   return (
     <View style={styles.container}>
@@ -130,11 +294,25 @@ export default function TrackingScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e86331" />}
+      >
         {/* Trip ID Banner */}
         <View style={styles.tripIdCard}>
-          <Text style={styles.tripIdLabel}>BOOKING REFERENCE</Text>
+          <View style={styles.tripIdHeader}>
+            <Text style={styles.tripIdLabel}>BOOKING REFERENCE</Text>
+            <TouchableOpacity onPress={() => fetchBookingDetails(false)} style={styles.refreshIconBtn}>
+              <Text style={styles.refreshIconText}>🔄 Sync</Text>
+            </TouchableOpacity>
+          </View>
           <Text style={styles.tripIdValue}>{bookingId || 'BKG-7829-XT'}</Text>
+          {booking && (
+            <Text style={styles.tripFareSub}>
+              Estimated Fare: <Text style={styles.tripFareHighlight}>₹{booking.estimatedFare || '350'}</Text> •{' '}
+              {booking.tempoType ? `${booking.tempoType.toUpperCase()} Tempo` : 'Standard Tempo'}
+            </Text>
+          )}
         </View>
 
         {/* Live Status Progression Card */}
@@ -146,7 +324,15 @@ export default function TrackingScreen() {
           </View>
 
           <View style={styles.progressMilestones}>
-            <Text style={[styles.milestoneText, styles.milestoneActive]}>Assigned</Text>
+            <Text
+              style={[
+                styles.milestoneText,
+                (status === 'driver_assigned' || status === 'arrived' || status === 'in_transit' || status === 'completed') &&
+                  styles.milestoneActive,
+              ]}
+            >
+              Assigned
+            </Text>
             <Text
               style={[
                 styles.milestoneText,
@@ -171,9 +357,9 @@ export default function TrackingScreen() {
         </View>
 
         {/* Start Ride OTP Card */}
-        {status !== 'completed' && (
+        {status !== 'completed' && status !== 'cancelled' && (
           <View style={styles.otpCard}>
-            <View>
+            <View style={{ flex: 1, marginRight: 12 }}>
               <Text style={styles.otpLabel}>🔒 START RIDE OTP</Text>
               <Text style={styles.otpSub}>Share with driver upon tempo arrival</Text>
             </View>
@@ -191,18 +377,16 @@ export default function TrackingScreen() {
               </View>
             </View>
             <Text style={styles.podSub}>
-              Cryptographic SHA-256 tamper-proof receipt generated upon delivery:
+              Cryptographic SHA-256 tamper-proof receipt generated upon verified delivery:
             </Text>
             <View style={styles.podHashBox}>
               <Text style={styles.podHashText} numberOfLines={1} ellipsizeMode="middle">
-                e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+                {podHash}
               </Text>
               <TouchableOpacity
                 style={styles.podCopyBtn}
                 onPress={async () => {
-                  await Clipboard.setStringAsync(
-                    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-                  );
+                  await Clipboard.setStringAsync(podHash);
                   Alert.alert('Copied', 'Proof of Delivery hash copied to clipboard!');
                 }}
               >
@@ -212,11 +396,36 @@ export default function TrackingScreen() {
           </View>
         )}
 
-        {/* Live Telemetry / GPS Coordinates (TC-035) */}
+        {/* Route Details Card */}
+        {booking && (
+          <View style={styles.routeCard}>
+            <View style={styles.routeItem}>
+              <Text style={styles.routeIcon}>🟢</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.routeLabel}>PICKUP LOCATION</Text>
+                <Text style={styles.routeAddress}>{booking.pickupAddress || 'Pune Hub'}</Text>
+              </View>
+            </View>
+            <View style={styles.routeDivider} />
+            <View style={styles.routeItem}>
+              <Text style={styles.routeIcon}>🏁</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.routeLabel}>DROP DESTINATION</Text>
+                <Text style={styles.routeAddress}>{booking.dropAddress || 'Destination Point'}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Live Telemetry / GPS Coordinates */}
         <View style={styles.telemetryCard}>
           <View style={styles.telemetryHeader}>
             <Text style={styles.telemetryTitle}>🛰️ Real-Time Telemetry</Text>
-            <Text style={styles.telemetryBadge}>Socket.io stream</Text>
+            <View style={styles.telemetryBadgeContainer}>
+              <Text style={styles.telemetryBadge}>
+                {socketConnected ? '🟢 Socket.io stream' : '🟡 Polling Sync'}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.telemetryRow}>
@@ -230,28 +439,58 @@ export default function TrackingScreen() {
             </View>
           </View>
 
+          <View style={styles.telemetryMetricsRow}>
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>Speed</Text>
+              <Text style={styles.metricVal}>{speed} km/h</Text>
+            </View>
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>Distance Left</Text>
+              <Text style={styles.metricVal}>
+                {distanceRemaining !== null ? `${distanceRemaining} km` : 'Calculating...'}
+              </Text>
+            </View>
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>Last Updated</Text>
+              <Text style={styles.metricValSmall}>{lastSynced}</Text>
+            </View>
+          </View>
+
           <View style={styles.mapPlaceholder}>
             <Text style={styles.mapIcon}>🗺️</Text>
             <Text style={styles.mapText}>Live GPS Radar Active</Text>
             <Text style={styles.mapSub}>
-              Driver coordinates updating at {driverLocation.lat.toFixed(4)}, {driverLocation.lng.toFixed(4)}
+              Driver coordinates streaming at {driverLocation.lat.toFixed(4)}, {driverLocation.lng.toFixed(4)}
             </Text>
+
+            {/* Manual test simulation control */}
+            <TouchableOpacity style={styles.simGpsBtn} onPress={handleSimulateGpsStep}>
+              <Text style={styles.simGpsBtnText}>📍 Test Live Coordinate Step</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Driver Partner Information */}
+        {/* Dynamic Driver Partner Information */}
         <View style={styles.driverCard}>
           <View style={styles.driverHeader}>
             <View style={styles.driverAvatar}>
               <Text style={styles.driverAvatarText}>👨‍✈️</Text>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.driverName}>Ramesh Patil</Text>
-              <Text style={styles.driverRating}>⭐ 4.9 (124 deliveries)</Text>
+              <Text style={styles.driverName}>{driverName}</Text>
+              <Text style={styles.driverRating}>{driverRating}</Text>
+              {driverPhone && (
+                <TouchableOpacity
+                  style={styles.callDriverBtn}
+                  onPress={() => Linking.openURL(`tel:${driverPhone}`)}
+                >
+                  <Text style={styles.callDriverText}>📞 Call: {driverPhone}</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <View style={styles.vehicleBadge}>
-              <Text style={styles.vehicleNumber}>MH 12 QZ 4412</Text>
-              <Text style={styles.vehicleModel}>Tata Ace Small</Text>
+              <Text style={styles.vehicleNumber}>{vehicleNumber}</Text>
+              <Text style={styles.vehicleModel}>{vehicleModel}</Text>
             </View>
           </View>
         </View>
@@ -321,18 +560,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2f3a4e',
   },
+  tripIdHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   tripIdLabel: {
     color: '#a2b2c7',
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 1,
   },
+  refreshIconBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#2f3a4e',
+    borderRadius: 6,
+  },
+  refreshIconText: {
+    color: '#c9d3df',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   tripIdValue: {
     color: '#f4f6f8',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginTop: 4,
+    marginTop: 6,
+  },
+  tripFareSub: {
+    color: '#a2b2c7',
+    fontSize: 12,
+    marginTop: 6,
+  },
+  tripFareHighlight: {
+    color: '#22c55e',
+    fontWeight: '700',
   },
   statusCard: {
     backgroundColor: '#293243',
@@ -371,6 +635,7 @@ const styles = StyleSheet.create({
   },
   milestoneActive: {
     color: '#38bdf8',
+    fontWeight: '700',
   },
   otpCard: {
     flexDirection: 'row',
@@ -401,6 +666,41 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
+  routeCard: {
+    backgroundColor: '#293243',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    marginBottom: 16,
+  },
+  routeItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  routeIcon: {
+    fontSize: 14,
+    marginTop: 2,
+  },
+  routeLabel: {
+    color: '#a2b2c7',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  routeAddress: {
+    color: '#f4f6f8',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  routeDivider: {
+    height: 1,
+    backgroundColor: '#2f3a4e',
+    marginVertical: 12,
+    marginLeft: 24,
+  },
   telemetryCard: {
     backgroundColor: '#293243',
     borderRadius: 16,
@@ -420,18 +720,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  telemetryBadgeContainer: {
+    backgroundColor: 'rgba(232, 99, 49, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
   telemetryBadge: {
     color: '#f08b65',
     fontSize: 11,
-    backgroundColor: 'rgba(232, 99, 49, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+    fontWeight: '600',
   },
   telemetryRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   telemetryBox: {
     flex: 1,
@@ -451,10 +754,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
+  telemetryMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#161d2b',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  metricItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  metricLabel: {
+    color: '#748bac',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  metricVal: {
+    color: '#38bdf8',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  metricValSmall: {
+    color: '#c9d3df',
+    fontSize: 11,
+    marginTop: 2,
+  },
   mapPlaceholder: {
     backgroundColor: '#0f141f',
     borderRadius: 12,
-    padding: 24,
+    padding: 20,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#2f3a4e',
@@ -473,6 +804,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 4,
     textAlign: 'center',
+  },
+  simGpsBtn: {
+    marginTop: 12,
+    backgroundColor: '#2f3a4e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  simGpsBtnText: {
+    color: '#c9d3df',
+    fontSize: 11,
+    fontWeight: '600',
   },
   driverCard: {
     backgroundColor: '#293243',
@@ -505,6 +848,14 @@ const styles = StyleSheet.create({
     color: '#f59e0b',
     fontSize: 12,
     marginTop: 2,
+  },
+  callDriverBtn: {
+    marginTop: 4,
+  },
+  callDriverText: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '600',
   },
   vehicleBadge: {
     alignItems: 'flex-end',
