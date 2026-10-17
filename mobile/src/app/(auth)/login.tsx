@@ -466,11 +466,11 @@ export default function LoginScreen() {
               <View style={styles.inputGroup}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <Gift color="#f59e0b" size={15} />
-                  <Text style={styles.label}>Referral Code (Optional)</Text>
+                  <Text style={styles.label}>Referral or Promo Code (Optional)</Text>
                 </View>
                 <TextInput
                   style={[styles.input, { borderColor: referralCode ? '#f59e0b' : '#334155' }]}
-                  placeholder="e.g. EMINENCE-AB12CD"
+                  placeholder="e.g. OMKAR100 or EMINENCE-AB12CD"
                   placeholderTextColor="#64748b"
                   autoCapitalize="characters"
                   value={referralCode}

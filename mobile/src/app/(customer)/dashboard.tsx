@@ -113,6 +113,33 @@ export default function CustomerDashboard() {
   // Referral Copy State
   const [copySuccess, setCopySuccess] = useState(false);
 
+  // Promo / Referral Code Redemption State
+  const [promoInput, setPromoInput] = useState('');
+  const [isSubmittingPromo, setIsSubmittingPromo] = useState(false);
+  const [walletPromoMessage, setWalletPromoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleApplyWalletPromo = async () => {
+    if (!promoInput.trim()) return;
+    setIsSubmittingPromo(true);
+    setWalletPromoMessage(null);
+    try {
+      const res = await api.post('/api/wallet/referral', { referralCode: promoInput.trim() });
+      setWalletPromoMessage({
+        type: 'success',
+        text: res.data?.message || 'Promo code applied successfully!'
+      });
+      setPromoInput('');
+      fetchDashboardData();
+    } catch (err: any) {
+      setWalletPromoMessage({
+        type: 'error',
+        text: err.response?.data?.message || 'Invalid or already used code'
+      });
+    } finally {
+      setIsSubmittingPromo(false);
+    }
+  };
+
   // Driver Review Modal State
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [selectedReviewRide, setSelectedReviewRide] = useState<any>(null);
@@ -847,6 +874,71 @@ export default function CustomerDashboard() {
                 </View>
               )}
             </View>
+
+            {/* Promo / Referral Code Redemption Card */}
+            <View style={[styles.referralCard, { marginTop: 16 }]}>
+              <View style={styles.referralHeader}>
+                <Text style={styles.referralIcon}>🏷️</Text>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.referralTitle}>Redeem Promo Code</Text>
+                  <Text style={styles.referralSub}>
+                    Enter a promotional discount code or referral bonus code to add funds to your wallet.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.codeRow}>
+                <TextInput
+                  style={[
+                    styles.promoInputBox,
+                    { borderColor: walletPromoMessage?.type === 'success' ? '#10b981' : '#2f3a4e' },
+                  ]}
+                  placeholder="e.g. OMKAR100 or EMINENCE-XYZ123"
+                  placeholderTextColor="#64748b"
+                  autoCapitalize="characters"
+                  value={promoInput}
+                  onChangeText={(val) => setPromoInput(val.toUpperCase())}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.copyBtn,
+                    { backgroundColor: '#e86331' },
+                    (!promoInput.trim() || isSubmittingPromo) && { opacity: 0.6 },
+                  ]}
+                  onPress={handleApplyWalletPromo}
+                  disabled={!promoInput.trim() || isSubmittingPromo}
+                >
+                  {isSubmittingPromo ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.copyBtnText}>Redeem</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {walletPromoMessage && (
+                <View
+                  style={[
+                    styles.copyBanner,
+                    {
+                      backgroundColor:
+                        walletPromoMessage.type === 'success'
+                          ? 'rgba(16, 185, 129, 0.15)'
+                          : 'rgba(239, 68, 68, 0.15)',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.copyBannerText,
+                      { color: walletPromoMessage.type === 'success' ? '#86efac' : '#fca5a5' },
+                    ]}
+                  >
+                    {walletPromoMessage.text}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -1543,6 +1635,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: '#2f3a4e',
+  },
+  promoInputBox: {
+    flex: 1,
+    backgroundColor: '#0f141f',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#2f3a4e',
+    color: '#f4f6f8',
+    fontSize: 14,
   },
   codeText: {
     color: '#f08b65',

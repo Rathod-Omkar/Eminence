@@ -230,6 +230,62 @@ async function runPhase6Tests() {
     logTest('TC-064', 'Mobile Booking with Road Distance Telematics & Pro 5% Discount', false, err.response?.data?.message || err.message);
   }
 
+  // ----------------------------------------------------------------
+  // TC-065: Mobile Promo Code Application Independent of Referral History
+  // ----------------------------------------------------------------
+  try {
+    // 1. Admin creates a promo code (e.g. OMKAR100 or MOBPROMO)
+    const adminLoginRes = await axios.post(`${BASE_URL}/api/admin/login`, {
+      email: 'admin@eminence.com',
+      password: 'adminpassword123',
+    });
+    const adminToken = adminLoginRes.data?.token;
+
+    const promoCode = `MOBPROMO${Math.floor(1000 + Math.random() * 9000)}`;
+    await axios.post(
+      `${BASE_URL}/api/admin/promocodes`,
+      {
+        code: promoCode,
+        description: 'Mobile Exclusive Discount',
+        discountType: 'FLAT',
+        discountValue: 400,
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        isActive: true,
+      },
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+
+    // 2. Referee (who already has referredBy from TC-060) applies this promo code
+    const applyRes = await axios.post(
+      `${BASE_URL}/api/wallet/referral`,
+      { referralCode: promoCode },
+      { headers: { Authorization: `Bearer ${refereeToken}` } }
+    );
+
+    const applySuccess = applyRes.data?.success === true && applyRes.data?.discount === 400;
+
+    // 3. Applying the same promo code again must be rejected as already used
+    let duplicateRejected = false;
+    try {
+      await axios.post(
+        `${BASE_URL}/api/wallet/referral`,
+        { referralCode: promoCode },
+        { headers: { Authorization: `Bearer ${refereeToken}` } }
+      );
+    } catch (dupErr) {
+      duplicateRejected = dupErr.response?.status === 400 && /already used this promo code/i.test(dupErr.response?.data?.message || '');
+    }
+
+    logTest(
+      'TC-065',
+      'Mobile Promo Code Application Independent of Existing Referral History',
+      applySuccess && duplicateRejected,
+      `Code: ${promoCode}, Discount: ₹400, Duplicate Rejected: ${duplicateRejected}`
+    );
+  } catch (err) {
+    logTest('TC-065', 'Mobile Promo Code Application Independent of Existing Referral History', false, err.response?.data?.message || err.message);
+  }
+
   // Teardown: Clean up referee user and bookings created in this test suite
   try {
     const adminRes = await axios.post(`${BASE_URL}/api/admin/login`, {

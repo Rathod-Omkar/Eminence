@@ -176,7 +176,7 @@ export default function CompleteProfileModal() {
             {!user?.referredBy && (
               <>
                 <View style={styles.labelRow}>
-                  <Text style={styles.label}>Referral Code (Optional)</Text>
+                  <Text style={styles.label}>Referral or Promo Code (Optional)</Text>
                   <Text style={[styles.lockedBadge, { color: '#e86331', backgroundColor: 'rgba(232, 99, 49, 0.1)', borderColor: 'rgba(232, 99, 49, 0.3)' }]}>
                     🎁 Get ₹100 Bonus
                   </Text>
@@ -186,7 +186,7 @@ export default function CompleteProfileModal() {
                   value={formData.referralCode}
                   autoCapitalize="characters"
                   onChangeText={(text) => setFormData(prev => ({ ...prev, referralCode: text.toUpperCase() }))}
-                  placeholder="e.g. EMINENCE-AB12CD"
+                  placeholder="e.g. OMKAR100 or EMINENCE-AB12CD"
                   placeholderTextColor="#748bac"
                 />
               </>

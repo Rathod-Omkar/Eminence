@@ -80,6 +80,12 @@ export default function BookScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Promo / Referral Code States
+  const [promoCode, setPromoCode] = useState('');
+  const [promoDiscount, setPromoDiscount] = useState<number>(0);
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [promoMessage, setPromoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Wallet Top-Up In-Place Modal States
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('350');
@@ -342,7 +348,35 @@ export default function BookScreen() {
       total = Math.round(total * 0.95);
     }
 
+    // Promo code discount
+    if (promoDiscount > 0) {
+      total = Math.max(0, total - promoDiscount);
+    }
+
     return total;
+  };
+
+  const handleApplyPromo = async () => {
+    if (!promoCode.trim()) return;
+    setIsApplyingPromo(true);
+    setPromoMessage(null);
+    try {
+      const res = await api.post('/api/wallet/referral', { referralCode: promoCode.trim() });
+      const amount = res.data?.discount || 100;
+      setPromoDiscount(amount);
+      setPromoMessage({
+        type: 'success',
+        text: res.data?.message || `Promo code applied! ₹${amount} discount added.`
+      });
+      fetchWalletBalance();
+    } catch (err: any) {
+      setPromoMessage({
+        type: 'error',
+        text: err.response?.data?.message || 'Invalid or expired promo code'
+      });
+    } finally {
+      setIsApplyingPromo(false);
+    }
   };
 
   const addStop = () => {
@@ -1288,6 +1322,51 @@ export default function BookScreen() {
           )}
         </View>
 
+        {/* SECTION 4.5: PROMO & REFERRAL CODE */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>🏷️ Have a Referral or Promo Code?</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            <TextInput
+              style={[
+                styles.input,
+                { flex: 1, borderColor: promoDiscount > 0 ? '#10b981' : '#334155' }
+              ]}
+              placeholder="e.g. OMKAR100 or EMINENCE-XYZ123"
+              placeholderTextColor="#748bac"
+              autoCapitalize="characters"
+              value={promoCode}
+              editable={promoDiscount === 0}
+              onChangeText={(val) => setPromoCode(val.toUpperCase())}
+            />
+            <TouchableOpacity
+              style={[
+                styles.promoApplyBtn,
+                (promoDiscount > 0 || !promoCode.trim() || isApplyingPromo) && styles.promoApplyBtnDisabled
+              ]}
+              onPress={handleApplyPromo}
+              disabled={promoDiscount > 0 || !promoCode.trim() || isApplyingPromo}
+            >
+              {isApplyingPromo ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.promoApplyBtnText}>{promoDiscount > 0 ? 'Applied' : 'Apply'}</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {promoMessage ? (
+            <Text
+              style={{
+                fontSize: 12,
+                marginTop: 6,
+                fontWeight: '600',
+                color: promoMessage.type === 'success' ? '#10b981' : '#ef4444',
+              }}
+            >
+              {promoMessage.text}
+            </Text>
+          ) : null}
+        </View>
+
         {/* SECTION 5: FARE BREAKDOWN & CONFIRM */}
         <View style={styles.fareCard}>
           <View style={styles.fareRow}>
@@ -1317,6 +1396,13 @@ export default function BookScreen() {
             <View style={styles.fareRow}>
               <Text style={[styles.fareLabel, { color: '#f59e0b' }]}>⭐ Eminence Pro (5% Discount)</Text>
               <Text style={[styles.fareVal, { color: '#f59e0b' }]}>Applied</Text>
+            </View>
+          )}
+
+          {promoDiscount > 0 && (
+            <View style={styles.fareRow}>
+              <Text style={[styles.fareLabel, { color: '#10b981' }]}>🏷️ Promo Discount</Text>
+              <Text style={[styles.fareVal, { color: '#10b981' }]}>-₹{promoDiscount}</Text>
             </View>
           )}
 
@@ -2644,5 +2730,20 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 11,
     marginTop: 2,
+  },
+  promoApplyBtn: {
+    backgroundColor: '#e86331',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promoApplyBtnDisabled: {
+    opacity: 0.5,
+  },
+  promoApplyBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
