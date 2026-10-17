@@ -549,37 +549,55 @@ const Tracking = () => {
         )}
 
         {/* Driver & Vehicle Compact Card */}
-        <div className="p-3.5 rounded-xl border border-loft-800 bg-loft-900/40 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-loft-800 rounded-full flex items-center justify-center overflow-hidden border border-copper-500/40 text-xl flex-shrink-0 shadow-inner">
-              👤
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-loft-50">
-                {booking?.is3plOutsourced 
-                  ? booking?.thirdPartyProvider 
-                  : (booking?.driver?.name || (booking?.status === 'pending' ? 'Finding a driver...' : 'Driver 1'))}
-              </h3>
-              <div className="flex items-center gap-2 text-xs text-loft-400 mt-0.5">
-                <span>⭐ {booking?.driver?.rating || '4.8'}</span>
-                <span>&bull;</span>
-                <span className="capitalize">{booking?.is3plOutsourced ? 'Outsourced Partner' : (booking?.vehicle?.type ? `${booking.vehicle.type} tempo` : 'Tata Ace (Medium)')}</span>
+        {booking?.driver ? (
+          <div className="p-3.5 rounded-xl border border-loft-800 bg-loft-900/40 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-loft-800 rounded-full flex items-center justify-center overflow-hidden border border-copper-500/40 text-xl flex-shrink-0 shadow-inner">
+                👤
               </div>
-              <div className="text-[11px] font-mono text-copper-300 mt-0.5 font-bold">
-                {booking?.vehicle?.registrationNumber || booking?.driver?.licenseNumber || (booking?.is3plOutsourced ? '3PL-PARTNER' : 'MH-12-AB-1234')}
+              <div>
+                <h3 className="text-sm font-bold text-loft-50">
+                  {booking.driver.name}
+                </h3>
+                <div className="flex items-center gap-2 text-xs text-loft-400 mt-0.5">
+                  <span className="text-emerald-400 font-medium">Assigned Driver</span>
+                  <span>&bull;</span>
+                  <span className="capitalize">{booking?.vehicle?.type ? `${booking.vehicle.type} tempo` : (booking?.tempoType ? `${booking.tempoType} tempo` : 'Tempo Truck')}</span>
+                </div>
+                <div className="text-[11px] font-mono text-copper-300 mt-0.5 font-bold">
+                  {booking?.vehicle?.registrationNumber || 'Assigned Tempo'}
+                </div>
               </div>
             </div>
+            
+            {booking.driver.phone && (
+              <div className="flex gap-2">
+                <a href={`tel:${booking.driver.phone}`} className="w-9 h-9 rounded-full bg-moss-500 text-white flex items-center justify-center shadow-md shadow-moss-500/20 hover:bg-moss-400 transition-colors">
+                  <Phone className="w-4 h-4" />
+                </a>
+              </div>
+            )}
           </div>
-          
-          <div className="flex gap-2">
-            <button className="w-9 h-9 rounded-full bg-copper-500/10 border border-copper-500/20 text-copper-400 flex items-center justify-center hover:bg-copper-500/20 transition-colors">
-              <MessageSquare className="w-4 h-4" />
-            </button>
-            <a href={`tel:${booking?.driver?.phone || '+919876543210'}`} className="w-9 h-9 rounded-full bg-moss-500 text-white flex items-center justify-center shadow-md shadow-moss-500/20 hover:bg-moss-400 transition-colors">
-              <Phone className="w-4 h-4" />
-            </a>
+        ) : (
+          <div className="p-3.5 rounded-xl border border-dashed border-loft-800 bg-loft-900/20 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-loft-800/50 rounded-full flex items-center justify-center text-xl flex-shrink-0 text-loft-400">
+                ⏳
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-loft-200">
+                  No Driver Assigned Yet
+                </h3>
+                <p className="text-xs text-loft-400 mt-0.5">
+                  Matching with the closest available tempo driver in Pune...
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
+              Pending Allocation
+            </span>
           </div>
-        </div>
+        )}
 
         {/* Route Details & Timeline (Compact) */}
         <div className="p-3.5 rounded-xl border border-loft-800 bg-loft-900/40">

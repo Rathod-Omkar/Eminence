@@ -38,12 +38,12 @@ export default function TrackingScreen() {
   const { token } = useAuth();
 
   const [booking, setBooking] = useState<any>(null);
-  const [status, setStatus] = useState<string>('driver_assigned');
+  const [status, setStatus] = useState<string>('pending');
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number }>({
     lat: 18.5204,
     lng: 73.8567,
   });
-  const [speed, setSpeed] = useState<number>(36);
+  const [speed, setSpeed] = useState<number>(0);
   const [lastSynced, setLastSynced] = useState<string>('Connecting...');
   const [socketConnected, setSocketConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -273,11 +273,11 @@ export default function TrackingScreen() {
     : '4928');
 
   // Dynamic Driver & Vehicle Details
-  const driverName = booking?.driver?.name || (status === 'pending' ? 'Dispatching Nearest Partner...' : 'Assigned Fleet Driver');
+  const hasAssignedDriver = !!(booking?.driverId && booking?.driver);
+  const driverName = booking?.driver?.name || null;
   const driverPhone = booking?.driver?.phone || null;
-  const driverRating = booking?.driver?.rating ? `⭐ ${booking.driver.rating}` : '⭐ 4.9 (124+ deliveries)';
-  const vehicleNumber = booking?.vehicle?.registrationNumber || 'MH 12 Registered';
-  const vehicleModel = booking?.vehicle?.model || (booking?.tempoType ? `${booking.tempoType.toUpperCase()} TEMPO` : 'Tata Ace Small');
+  const vehicleNumber = booking?.vehicle?.registrationNumber || null;
+  const vehicleModel = booking?.vehicle?.model || (booking?.tempoType ? `${booking.tempoType.toUpperCase()} Tempo` : null);
   const podHash = booking?.podHash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
   return (
@@ -458,42 +458,70 @@ export default function TrackingScreen() {
 
           <View style={styles.mapPlaceholder}>
             <Text style={styles.mapIcon}>🗺️</Text>
-            <Text style={styles.mapText}>Live GPS Radar Active</Text>
+            <Text style={styles.mapText}>
+              {hasAssignedDriver ? 'Live GPS Radar Active' : 'Awaiting Driver Assignment'}
+            </Text>
             <Text style={styles.mapSub}>
-              Driver coordinates streaming at {driverLocation.lat.toFixed(4)}, {driverLocation.lng.toFixed(4)}
+              {hasAssignedDriver
+                ? `Driver coordinates streaming at ${driverLocation.lat.toFixed(4)}, ${driverLocation.lng.toFixed(4)}`
+                : 'Telemetry and live GPS stream will start once a driver accepts your trip'}
             </Text>
 
             {/* Manual test simulation control */}
-            <TouchableOpacity style={styles.simGpsBtn} onPress={handleSimulateGpsStep}>
-              <Text style={styles.simGpsBtnText}>📍 Test Live Coordinate Step</Text>
-            </TouchableOpacity>
+            {hasAssignedDriver && (
+              <TouchableOpacity style={styles.simGpsBtn} onPress={handleSimulateGpsStep}>
+                <Text style={styles.simGpsBtnText}>📍 Test Live Coordinate Step</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
         {/* Dynamic Driver Partner Information */}
-        <View style={styles.driverCard}>
-          <View style={styles.driverHeader}>
-            <View style={styles.driverAvatar}>
-              <Text style={styles.driverAvatarText}>👨‍✈️</Text>
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.driverName}>{driverName}</Text>
-              <Text style={styles.driverRating}>{driverRating}</Text>
-              {driverPhone && (
-                <TouchableOpacity
-                  style={styles.callDriverBtn}
-                  onPress={() => Linking.openURL(`tel:${driverPhone}`)}
-                >
-                  <Text style={styles.callDriverText}>📞 Call: {driverPhone}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={styles.vehicleBadge}>
-              <Text style={styles.vehicleNumber}>{vehicleNumber}</Text>
-              <Text style={styles.vehicleModel}>{vehicleModel}</Text>
+        {hasAssignedDriver ? (
+          <View style={styles.driverCard}>
+            <View style={styles.driverHeader}>
+              <View style={styles.driverAvatar}>
+                <Text style={styles.driverAvatarText}>👨‍✈️</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.driverName}>{driverName}</Text>
+                <Text style={styles.driverStatusSubtitle}>Assigned Fleet Driver</Text>
+                {driverPhone && (
+                  <TouchableOpacity
+                    style={styles.callDriverBtn}
+                    onPress={() => Linking.openURL(`tel:${driverPhone}`)}
+                  >
+                    <Text style={styles.callDriverText}>📞 Call: {driverPhone}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.vehicleBadge}>
+                <Text style={styles.vehicleNumber}>{vehicleNumber || 'Assigned Tempo'}</Text>
+                <Text style={styles.vehicleModel}>{vehicleModel || 'Tempo Truck'}</Text>
+              </View>
             </View>
           </View>
-        </View>
+        ) : (
+          <View style={[styles.driverCard, styles.unassignedDriverCard]}>
+            <View style={styles.driverHeader}>
+              <View style={[styles.driverAvatar, styles.unassignedAvatar]}>
+                <Text style={styles.driverAvatarText}>⏳</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.driverName}>No Driver Assigned Yet</Text>
+                <Text style={styles.unassignedSubText}>
+                  Matching with the closest available tempo driver in Pune...
+                </Text>
+              </View>
+              <View style={styles.vehicleBadge}>
+                <Text style={styles.pendingBadgeText}>Pending Allocation</Text>
+                <Text style={styles.vehicleModel}>
+                  {booking?.tempoType ? `${booking.tempoType.toUpperCase()} Tempo` : 'Tempo'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -844,10 +872,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  driverRating: {
-    color: '#f59e0b',
+  driverStatusSubtitle: {
+    color: '#38bdf8',
     fontSize: 12,
     marginTop: 2,
+    fontWeight: '500',
+  },
+  unassignedDriverCard: {
+    borderStyle: 'dashed',
+    borderColor: '#475569',
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+  },
+  unassignedAvatar: {
+    backgroundColor: '#1e293b',
+  },
+  unassignedSubText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  pendingBadgeText: {
+    color: '#f59e0b',
+    fontSize: 11,
+    fontWeight: '700',
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   callDriverBtn: {
     marginTop: 4,
