@@ -378,19 +378,6 @@ export default function LoginScreen() {
                   <Text style={styles.backBtnText}>Don't have an account? Sign Up</Text>
                 </TouchableOpacity>
               )}
-
-              <View style={styles.adminDivider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>ENTERPRISE ADMIN</Text>
-                <View style={styles.dividerLine} />
-              </View>
-              
-              <TouchableOpacity
-                style={styles.adminLinkBtn}
-                onPress={() => router.push('/(auth)/admin-login')}
-              >
-                <Text style={styles.adminLinkText}>Go to Secure Admin Portal</Text>
-              </TouchableOpacity>
             </View>
           ) : step === 'email_register' ? (
             <View style={styles.inputGroup}>
