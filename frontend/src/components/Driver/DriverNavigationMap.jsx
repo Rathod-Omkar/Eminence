@@ -279,6 +279,7 @@ const DriverNavigationMap = ({
   onArrivedDropoff,
   onLocationUpdate,
   onFinishTrip,
+  isFinishingTrip = false,
   className = ''
 }) => {
   // Geocoded Coordinates
@@ -1106,11 +1107,21 @@ const DriverNavigationMap = ({
                   {onFinishTrip && (
                     <button
                       type="button"
+                      disabled={isFinishingTrip}
                       onClick={onFinishTrip}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-loft-950 text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+                      className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-75 text-loft-950 text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-2"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Sign PoD & Complete Delivery
+                      {isFinishingTrip ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-loft-950 border-t-transparent rounded-full animate-spin"></span>
+                          <span>Signing PoD & Completing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Sign PoD & Complete Delivery</span>
+                        </>
+                      )}
                     </button>
                   )}
                   <button
