@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import api from '../../services/api';
+import AdminMenuModal from '../../components/AdminMenuModal';
 
 interface DriverItem {
   id: string;
@@ -40,12 +41,15 @@ export default function FleetManagementScreen() {
   const [vehicles, setVehicles] = useState<VehicleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Add Driver Modal State (TC-032)
   const [isDriverModalOpen, setIsDriverModalOpen] = useState(false);
-  const [driverName, setDriverName] = useState('Test Driver');
-  const [driverPhone, setDriverPhone] = useState('9999999999');
-  const [driverLicense, setDriverLicense] = useState('MH12XY9999');
+  const [driverName, setDriverName] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  const [driverEmail, setDriverEmail] = useState('');
+  const [driverLicense, setDriverLicense] = useState('');
+  const [driverPassword, setDriverPassword] = useState('');
   const [driverSaving, setDriverSaving] = useState(false);
 
   // Add Vehicle Modal State (TC-033)
@@ -106,33 +110,37 @@ export default function FleetManagementScreen() {
 
   // TC-032: Add New Driver
   const handleSaveDriver = async () => {
-    if (!driverName || !driverPhone || !driverLicense) {
+    if (!driverName.trim() || !driverPhone.trim() || !driverLicense.trim()) {
       Alert.alert('Missing Fields', 'Please provide driver name, phone, and license number.');
       return;
     }
 
     setDriverSaving(true);
     try {
+      const payload: any = {
+        name: driverName.trim(),
+        phone: driverPhone.trim(),
+        licenseNumber: driverLicense.trim().toUpperCase(),
+        status: 'active',
+      };
+      if (driverEmail.trim()) payload.email = driverEmail.trim().toLowerCase();
+      if (driverPassword.trim()) payload.password = driverPassword.trim();
+
       let res;
       try {
-        res = await api.post('/api/admin/drivers', {
-          name: driverName,
-          phone: driverPhone,
-          licenseNumber: driverLicense,
-          status: 'active',
-        });
+        res = await api.post('/api/admin/drivers', payload);
       } catch {
-        res = await api.post('/api/drivers', {
-          name: driverName,
-          phone: driverPhone,
-          licenseNumber: driverLicense,
-          status: 'active',
-        });
+        res = await api.post('/api/drivers', payload);
       }
 
       if (res.data?.success && res.data?.driver) {
         setDrivers((prev) => [res.data.driver, ...prev]);
         setIsDriverModalOpen(false);
+        setDriverName('');
+        setDriverPhone('');
+        setDriverEmail('');
+        setDriverLicense('');
+        setDriverPassword('');
         Alert.alert('Driver Enrolled', `Driver ${driverName} registered successfully!`);
       } else {
         Alert.alert('Error', res.data?.message || 'Could not enroll driver.');
@@ -182,19 +190,30 @@ export default function FleetManagementScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Fleet Assets</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => {
-            if (activeTab === 'drivers') setIsDriverModalOpen(true);
-            else setIsVehicleModalOpen(true);
-          }}
-        >
-          <Text style={styles.addBtnText}>+ Add</Text>
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Fleet Assets</Text>
+        </View>
+
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => {
+              if (activeTab === 'drivers') setIsDriverModalOpen(true);
+              else setIsVehicleModalOpen(true);
+            }}
+          >
+            <Text style={styles.addBtnText}>+ Add</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.menuTrigger}
+            onPress={() => setIsMenuOpen(true)}
+          >
+            <Text style={styles.menuTriggerText}>☰</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tabs */}
@@ -336,34 +355,55 @@ export default function FleetManagementScreen() {
             </View>
             <Text style={styles.modalSubtitle}>Enroll a driver into the active logistics fleet.</Text>
 
-            <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
-              <Text style={styles.inputLabel}>Full Name</Text>
+            <ScrollView style={{ maxHeight: 340 }} keyboardShouldPersistTaps="handled">
+              <Text style={styles.inputLabel}>Full Name *</Text>
               <TextInput
                 style={styles.modalInput}
                 value={driverName}
                 onChangeText={setDriverName}
-                placeholder="e.g. Test Driver"
+                placeholder="e.g. Ramesh Kumar"
                 placeholderTextColor="#748bac"
               />
 
-              <Text style={styles.inputLabel}>Phone Number</Text>
+              <Text style={styles.inputLabel}>Phone Number * (10 Digits)</Text>
               <TextInput
                 style={styles.modalInput}
                 value={driverPhone}
                 onChangeText={setDriverPhone}
-                placeholder="e.g. 9999999999"
+                placeholder="e.g. 9876543210"
                 placeholderTextColor="#748bac"
                 keyboardType="phone-pad"
               />
 
-              <Text style={styles.inputLabel}>License Number</Text>
+              <Text style={styles.inputLabel}>Commercial License Number *</Text>
               <TextInput
                 style={styles.modalInput}
                 value={driverLicense}
                 onChangeText={setDriverLicense}
-                placeholder="e.g. MH12XY9999"
+                placeholder="e.g. MH12-2022-004455"
                 placeholderTextColor="#748bac"
                 autoCapitalize="characters"
+              />
+
+              <Text style={styles.inputLabel}>Email Address (Optional)</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={driverEmail}
+                onChangeText={setDriverEmail}
+                placeholder="e.g. driver@eminence.com"
+                placeholderTextColor="#748bac"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+
+              <Text style={styles.inputLabel}>Password (Optional for Mobile Login)</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={driverPassword}
+                onChangeText={setDriverPassword}
+                placeholder="Enter password (or OTP auth)"
+                placeholderTextColor="#748bac"
+                secureTextEntry
               />
             </ScrollView>
 
@@ -460,6 +500,18 @@ export default function FleetManagementScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Unified Admin Navigation Menu */}
+      <AdminMenuModal
+        visible={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        activeRoute="fleet"
+        onOpenAddDriver={() => {
+          setActiveTab('drivers');
+          setIsDriverModalOpen(true);
+        }}
+        onOpenAddAdmin={() => router.push('/(admin)/admins' as any)}
+      />
     </View>
   );
 }
@@ -473,39 +525,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 52,
     paddingBottom: 16,
-    backgroundColor: '#293243',
+    backgroundColor: '#20293a',
     borderBottomWidth: 1,
-    borderBottomColor: '#2f3a4e',
+    borderBottomColor: '#2b3648',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   backBtn: {
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#2f3a4e',
+    backgroundColor: '#2b3648',
   },
   backBtnText: {
-    color: '#c9d3df',
+    color: '#cbd5e1',
     fontWeight: '600',
     fontSize: 13,
   },
   title: {
-    color: '#f4f6f8',
-    fontSize: 17,
+    color: '#f8fafc',
+    fontSize: 18,
     fontWeight: '700',
   },
   addBtn: {
     backgroundColor: '#2563eb',
-    paddingVertical: 6,
-    paddingHorizontal: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
     borderRadius: 8,
   },
   addBtnText: {
-    color: '#f4f6f8',
-    fontSize: 13,
+    color: '#ffffff',
+    fontSize: 12,
     fontWeight: '700',
+  },
+  menuTrigger: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#2b3648',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuTriggerText: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   tabsRow: {
     flexDirection: 'row',

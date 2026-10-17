@@ -9,6 +9,8 @@ export default function AdminLayout() {
       }}
     >
       <Stack.Screen name="dashboard" options={{ headerShown: false }} />
+      <Stack.Screen name="admins" options={{ headerShown: false }} />
+      <Stack.Screen name="customers" options={{ headerShown: false }} />
       <Stack.Screen name="fleet" options={{ headerShown: false }} />
       <Stack.Screen name="dispatch" options={{ headerShown: false }} />
       <Stack.Screen name="telematics" options={{ headerShown: false }} />

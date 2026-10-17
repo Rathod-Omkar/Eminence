@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import api from '../../services/api';
+import AdminMenuModal from '../../components/AdminMenuModal';
 
 interface BookingItem {
   id: string;
@@ -50,6 +51,7 @@ export default function DispatchScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'pending' | 'all'>('pending');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Assignment Modal
   const [selectedBooking, setSelectedBooking] = useState<BookingItem | null>(null);
@@ -160,9 +162,14 @@ export default function DispatchScreen() {
           <Text style={styles.backBtnText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Appoint Work</Text>
-        <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
-          <Text style={styles.refreshBtnText}>↻</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
+            <Text style={styles.refreshBtnText}>↻</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.menuTrigger} onPress={() => setIsMenuOpen(true)}>
+            <Text style={styles.menuTriggerText}>☰</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* 8 Tempos Limited Fleet Status Card */}
@@ -444,6 +451,15 @@ export default function DispatchScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Unified Admin Navigation Menu */}
+      <AdminMenuModal
+        visible={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        activeRoute="dispatch"
+        onOpenAddDriver={() => router.push('/(admin)/fleet' as any)}
+        onOpenAddAdmin={() => router.push('/(admin)/admins' as any)}
+      />
     </View>
   );
 }
@@ -463,6 +479,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#1b2230',
     borderBottomWidth: 1,
     borderBottomColor: '#2f3a4e',
+  },
+  menuTrigger: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#293243',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuTriggerText: {
+    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   backBtn: {
     paddingVertical: 6,
