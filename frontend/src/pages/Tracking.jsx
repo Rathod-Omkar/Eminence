@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Phone, MessageSquare, ShieldCheck, Check, Copy, Truck, ArrowRight, Clock } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Phone, MessageSquare, ShieldCheck, Check, Copy, Truck, ArrowRight, Clock, X, AlertTriangle, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import TrackingMap from '../components/Tracking/TrackingMap';
 import ReviewModal from '../components/Customer/ReviewModal';
 import api from '../services/api';
@@ -17,7 +17,7 @@ const Tracking = () => {
   const { bookingId } = useParams();
   const { user } = useSelector((state) => state.auth);
   const [booking, setBooking] = useState(null);
-  const [status, setStatus] = useState('searching'); // searching, driver_assigned, arrived, in_transit, completed
+  const [status, setStatus] = useState('searching'); // searching, driver_assigned, arrived, in_transit, completed, cancelled
   const [_loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -34,6 +34,13 @@ const Tracking = () => {
 
   const [effectiveBookingId, setEffectiveBookingId] = useState(bookingId || null);
   const [hasNoActiveBooking, setHasNoActiveBooking] = useState(false);
+
+  // Cancellation state
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
+  const [cancelSuccessMsg, setCancelSuccessMsg] = useState('');
 
   // Routing State
   const [routeData, setRouteData] = useState(null);
@@ -291,35 +298,75 @@ const Tracking = () => {
     };
   }, [booking?.pickupAddress, booking?.dropAddress, booking?.stops]);
 
+  const handleCancelBooking = async () => {
+    const id = effectiveBookingId || bookingId || booking?.id;
+    if (!id) return;
+    try {
+      setIsCancelling(true);
+      setCancelError(null);
+      const res = await api.post(`/api/bookings/${id}/cancel`, {
+        reason: cancelReason.trim() || 'Cancelled by customer via tracking page'
+      });
+      const updated = res.data?.booking || res.data;
+      setStatus('cancelled');
+      setBooking(prev => ({
+        ...prev,
+        ...updated,
+        status: 'cancelled',
+        cancellationReason: updated?.cancellationReason || cancelReason.trim() || 'Cancelled by customer',
+        cancelledBy: 'customer'
+      }));
+      setIsCancelModalOpen(false);
+      setCancelSuccessMsg(res.data?.message || 'Booking cancelled successfully. 100% full refund credited to your wallet.');
+    } catch (err) {
+      console.error('Error cancelling booking:', err);
+      setCancelError(err.response?.data?.message || 'Failed to cancel booking. Please try again.');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   const getStatusText = () => {
     switch(status) {
+      case 'pending':
       case 'searching': return 'Searching for driver...';
       case 'driver_assigned': return 'Driver assigned, on the way to pickup.';
       case 'arrived': return 'Driver has arrived at pickup location.';
       case 'in_transit': return 'Goods in transit to destination.';
       case 'completed': return 'Delivery completed successfully!';
+      case 'cancelled':
+        return booking?.cancellationReason?.toLowerCase().includes('expire')
+          ? 'Booking Expired: Untouched past validity deadline.'
+          : 'Booking Cancelled.';
       default: return 'Loading status...';
     }
   };
 
   const getStatusBadge = () => {
     switch(status) {
+      case 'pending':
       case 'searching': return { text: 'SEARCHING', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
       case 'driver_assigned': return { text: 'ASSIGNED', bg: 'bg-blue-500/20 text-blue-300 border-blue-500/30' };
       case 'arrived': return { text: 'AT PICKUP', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/30' };
       case 'in_transit': return { text: 'IN TRANSIT', bg: 'bg-copper-500/20 text-copper-300 border-copper-500/30' };
       case 'completed': return { text: 'COMPLETED', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+      case 'cancelled':
+        return booking?.cancellationReason?.toLowerCase().includes('expire')
+          ? { text: 'EXPIRED', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/30' }
+          : { text: 'CANCELLED', bg: 'bg-red-500/20 text-red-300 border-red-500/30' };
       default: return { text: 'ACTIVE', bg: 'bg-loft-800 text-loft-300 border-loft-700' };
     }
   };
 
   const getProgressWidth = () => {
     switch(status) {
+      case 'pending':
       case 'searching': return '12%';
       case 'driver_assigned': return '35%';
       case 'arrived': return '55%';
       case 'in_transit': return '82%';
       case 'completed': return '100%';
+      case 'cancelled': return '0%';
       default: return '10%';
     }
   };
@@ -446,6 +493,53 @@ const Tracking = () => {
           </div>
         )}
 
+        {cancelSuccessMsg && (
+          <div className="p-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-medium flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span>{cancelSuccessMsg}</span>
+          </div>
+        )}
+
+        {status === 'cancelled' && (
+          <div className="p-3.5 rounded-xl border border-red-500/40 bg-red-500/10 shadow-md">
+            <div className="flex items-center gap-2 text-red-400 font-bold text-xs mb-1">
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              <span>{booking?.cancellationReason?.toLowerCase().includes('expire') ? 'Booking Expired' : 'Booking Cancelled'}</span>
+            </div>
+            <p className="text-xs text-loft-200 mb-2">
+              {booking?.cancellationReason || 'This booking has been cancelled.'}
+            </p>
+            <div className="text-[11px] text-emerald-400 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 font-medium">
+              ✓ Any advance payment has been refunded 100% to your wallet.
+            </div>
+          </div>
+        )}
+
+        {(status === 'searching' || status === 'pending') && (
+          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" /> Untouched Expiry Deadline
+              </span>
+              <span className="font-mono text-amber-300 font-semibold text-[11px]">
+                {booking?.expiresAt 
+                  ? `${new Date(booking.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${new Date(booking.expiresAt).toLocaleDateString()})` 
+                  : 'Within 24 Hours'}
+              </span>
+            </div>
+            <p className="text-[11px] text-loft-300 leading-relaxed">
+              If no driver accepts this trip before expiry, it will automatically cancel and refund 100% of your payment to your wallet.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsCancelModalOpen(true)}
+              className="w-full py-2 px-3 rounded-lg border border-red-500/40 bg-red-500/15 hover:bg-red-500/25 text-red-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" /> Cancel Booking Now
+            </button>
+          </div>
+        )}
+
         {/* Unified Status & Live Telemetry HUD Card (Compact) */}
         <div className="p-3.5 rounded-xl border border-loft-800 bg-loft-900/60 shadow-md">
           {/* Status Header */}
@@ -502,8 +596,8 @@ const Tracking = () => {
           </div>
         </div>
 
-        {/* Start Ride OTP Card (Only show if not completed) */}
-        {status !== 'completed' && (
+        {/* Start Ride OTP Card (Only show if not completed and not cancelled) */}
+        {status !== 'completed' && status !== 'cancelled' && (
           <div className="p-3.5 rounded-xl flex items-center justify-between border border-moss-500/40 bg-moss-500/10 shadow-md">
             <div>
               <p className="text-xs text-moss-300 font-bold flex items-center gap-1.5">
@@ -549,7 +643,26 @@ const Tracking = () => {
         )}
 
         {/* Driver & Vehicle Compact Card */}
-        {booking?.driver ? (
+        {status === 'cancelled' ? (
+          <div className="p-3.5 rounded-xl border border-dashed border-red-500/30 bg-red-500/5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center text-xl flex-shrink-0 text-red-400">
+                ✕
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-loft-200">
+                  Booking Cancelled
+                </h3>
+                <p className="text-xs text-loft-400 mt-0.5">
+                  {booking?.cancellationReason || 'No driver will be assigned.'}
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono text-red-400 bg-red-500/10 px-2 py-1 rounded border border-red-500/20">
+              Closed
+            </span>
+          </div>
+        ) : booking?.driver ? (
           <div className="p-3.5 rounded-xl border border-loft-800 bg-loft-900/40 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-loft-800 rounded-full flex items-center justify-center overflow-hidden border border-copper-500/40 text-xl flex-shrink-0 shadow-inner">
@@ -635,6 +748,79 @@ const Tracking = () => {
         </div>
 
       </div>
+
+      {/* Cancel Booking Confirmation Modal */}
+      <AnimatePresence>
+        {isCancelModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-loft-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="card max-w-sm w-full p-6 border border-loft-700 shadow-2xl relative"
+            >
+              <button
+                onClick={() => { setIsCancelModalOpen(false); setCancelReason(''); }}
+                className="absolute top-4 right-4 text-loft-400 hover:text-loft-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-4 text-red-500">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+
+              <h3 className="text-lg font-bold text-loft-50 mb-2">Cancel This Booking?</h3>
+              <p className="text-xs text-loft-300 mb-4 leading-relaxed">
+                Since your ride has not been picked up by a driver, you can cancel immediately. Any advance payment will be <strong>100% refunded to your wallet</strong>.
+              </p>
+
+              {cancelError && (
+                <div className="p-2 mb-3 rounded border border-red-500/30 bg-red-500/10 text-red-400 text-xs">
+                  {cancelError}
+                </div>
+              )}
+
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-loft-300 mb-1">Reason for Cancellation (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Changed delivery plans, no longer needed"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="input-field text-xs py-2 w-full"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={isCancelling}
+                  onClick={() => { setIsCancelModalOpen(false); setCancelReason(''); }}
+                  className="btn-secondary w-full py-2.5 text-xs"
+                >
+                  Keep Ride
+                </button>
+                <button
+                  type="button"
+                  disabled={isCancelling}
+                  onClick={handleCancelBooking}
+                  className="w-full py-2.5 text-xs font-semibold rounded-xl bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-red-600/20 disabled:opacity-50"
+                >
+                  {isCancelling ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Cancelling...
+                    </span>
+                  ) : (
+                    'Yes, Cancel Ride'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <ReviewModal 
         isOpen={isReviewModalOpen} 

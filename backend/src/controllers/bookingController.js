@@ -280,6 +280,25 @@ const createBooking = async (req, res) => {
       bookingData.otp = crypto.randomInt(1000, 10000).toString();
     }
 
+    // Expiration date/time calculation for delivery
+    // If not explicitly provided, defaults to 24 hours from scheduledAt (or 24 hours from creation)
+    if (bookingData.expiresAt) {
+      const parsedExp = new Date(bookingData.expiresAt);
+      if (!isNaN(parsedExp.getTime())) {
+        bookingData.expiresAt = parsedExp;
+      } else {
+        delete bookingData.expiresAt;
+      }
+    }
+    if (!bookingData.expiresAt) {
+      if (bookingData.scheduledAt) {
+        const schedTime = new Date(bookingData.scheduledAt).getTime();
+        bookingData.expiresAt = new Date(schedTime + 24 * 60 * 60 * 1000);
+      } else {
+        bookingData.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      }
+    }
+
     const booking = await Booking.create(bookingData);
 
     if (deductedWallet) {
@@ -425,6 +444,35 @@ const updateBookingStatus = async (req, res) => {
         }
       }
 
+      if (status === 'cancelled') {
+        if (['in_transit', 'completed'].includes(booking.status)) {
+          return res.status(400).json({ success: false, message: 'Cannot cancel booking once it is in transit or completed' });
+        }
+        booking.cancellationReason = req.body.reason || req.body.cancellationReason || (isCustomerCancelling ? 'Cancelled by customer' : 'Cancelled by administrator');
+        booking.cancelledBy = isCustomerCancelling ? 'customer' : (isAdmin ? 'admin' : userRole);
+
+        // Auto refund to customer wallet if paid
+        if (booking.paymentStatus === 'completed' || booking.paymentMethod === 'wallet') {
+          const fare = parseFloat(booking.estimatedFare) || 0;
+          if (fare > 0 && booking.customerId) {
+            let wallet = await Wallet.findOne({ where: { customerId: booking.customerId } });
+            if (!wallet) {
+              wallet = await Wallet.create({ customerId: booking.customerId, balance: 0.00 });
+            }
+            wallet.balance = parseFloat((parseFloat(wallet.balance) + fare).toFixed(2));
+            await wallet.save();
+
+            await Transaction.create({
+              walletId: wallet.id,
+              amount: fare,
+              type: 'CREDIT',
+              description: `Refund for Cancelled Booking #${booking.id.slice(0, 8)}`,
+              referenceId: booking.id
+            }).catch(err => console.warn('Refund transaction logging note:', err.message));
+          }
+        }
+      }
+
       booking.status = status;
     }
 
@@ -468,6 +516,29 @@ const updateBookingStatus = async (req, res) => {
 
     await booking.save();
 
+    // Release driver queue if cancelled
+    if (status === 'cancelled' && booking.driverId) {
+      const remainingTrips = await Booking.findAll({
+        where: {
+          driverId: booking.driverId,
+          status: ['driver_assigned', 'arrived', 'in_transit']
+        },
+        order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+      });
+      const otherTrips = remainingTrips.filter(t => t.id !== booking.id);
+      for (let i = 0; i < otherTrips.length; i++) {
+        otherTrips[i].queuePosition = i + 1;
+        await otherTrips[i].save().catch(() => {});
+      }
+      if (otherTrips.length === 0) {
+        const driver = await Driver.findByPk(booking.driverId);
+        if (driver && driver.status === 'on_trip') {
+          driver.status = 'active';
+          await driver.save().catch(() => {});
+        }
+      }
+    }
+
     // Broadcast status change to customer tracking room
     try {
       const { getIo } = require('../socket');
@@ -475,6 +546,8 @@ const updateBookingStatus = async (req, res) => {
       io.to(`trip_${booking.id}`).emit('booking_status_updated', {
         bookingId: booking.id,
         status: booking.status,
+        cancellationReason: booking.cancellationReason,
+        cancelledBy: booking.cancelledBy,
         booking
       });
       io.to(`trip_${booking.id}`).emit('trip:status', {
@@ -511,6 +584,118 @@ const updateBookingStatus = async (req, res) => {
   } catch (error) {
     console.error('Error updating booking status:', error);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Cancel booking (explicit endpoint for customers or admins)
+const cancelBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findByPk(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    const userRole = req.user?.role;
+    const userId = req.user?.id;
+    const isAdmin = userRole === 'admin';
+    const isOwner = userRole === 'customer' && booking.customerId === userId;
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ success: false, message: 'Not authorized to cancel this booking' });
+    }
+
+    if (['in_transit', 'completed'].includes(booking.status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot cancel booking once it is in transit or completed' 
+      });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Booking is already cancelled' 
+      });
+    }
+
+    const cancellationReason = req.body.reason || req.body.cancellationReason || (isOwner ? 'Cancelled by customer' : 'Cancelled by administrator');
+    booking.status = 'cancelled';
+    booking.cancellationReason = cancellationReason;
+    booking.cancelledBy = isOwner ? 'customer' : 'admin';
+
+    // Release driver if assigned
+    if (booking.driverId) {
+      const remainingTrips = await Booking.findAll({
+        where: {
+          driverId: booking.driverId,
+          status: ['driver_assigned', 'arrived', 'in_transit']
+        },
+        order: [['queuePosition', 'ASC'], ['createdAt', 'ASC']]
+      });
+
+      const otherTrips = remainingTrips.filter(t => t.id !== booking.id);
+      for (let i = 0; i < otherTrips.length; i++) {
+        otherTrips[i].queuePosition = i + 1;
+        await otherTrips[i].save().catch(() => {});
+      }
+
+      if (otherTrips.length === 0) {
+        const driver = await Driver.findByPk(booking.driverId);
+        if (driver && driver.status === 'on_trip') {
+          driver.status = 'active';
+          await driver.save().catch(() => {});
+        }
+      }
+    }
+
+    // Auto-refund to customer wallet if paid
+    if (booking.paymentStatus === 'completed' || booking.paymentMethod === 'wallet') {
+      const fare = parseFloat(booking.estimatedFare) || 0;
+      if (fare > 0 && booking.customerId) {
+        let wallet = await Wallet.findOne({ where: { customerId: booking.customerId } });
+        if (!wallet) {
+          wallet = await Wallet.create({ customerId: booking.customerId, balance: 0.00 });
+        }
+        wallet.balance = parseFloat((parseFloat(wallet.balance) + fare).toFixed(2));
+        await wallet.save();
+
+        await Transaction.create({
+          walletId: wallet.id,
+          amount: fare,
+          type: 'CREDIT',
+          description: `Refund for Cancelled Booking #${booking.id.slice(0, 8)}`,
+          referenceId: booking.id
+        }).catch(err => console.warn('Refund transaction logging note:', err.message));
+      }
+    }
+
+    await booking.save();
+
+    // Broadcast status change via Socket.io
+    try {
+      const { getIo } = require('../socket');
+      const io = getIo();
+      io.to(`trip_${booking.id}`).emit('booking_status_updated', {
+        bookingId: booking.id,
+        status: booking.status,
+        cancellationReason: booking.cancellationReason,
+        cancelledBy: booking.cancelledBy,
+        booking
+      });
+      io.to(`trip_${booking.id}`).emit('trip:status', {
+        bookingId: booking.id,
+        status: booking.status
+      });
+    } catch (socketErr) {}
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking cancelled successfully. Any advance payment has been credited to your wallet.',
+      booking
+    });
+  } catch (error) {
+    console.error('Error cancelling booking:', error);
+    res.status(500).json({ success: false, message: 'Server error cancelling booking' });
   }
 };
 
@@ -864,5 +1049,6 @@ module.exports = {
   createBooking,
   completeBooking,
   updateBookingStatus,
+  cancelBooking,
   aiVoiceBooking
 };

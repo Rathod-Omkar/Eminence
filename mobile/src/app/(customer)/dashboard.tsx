@@ -156,6 +156,41 @@ export default function CustomerDashboard() {
     }
   };
 
+  const handleCancelRide = (rideId: string) => {
+    Alert.alert(
+      'Cancel Ride',
+      'Are you sure you want to cancel this booking? If you have paid in advance, 100% of the fare will be immediately refunded to your wallet.',
+      [
+        { text: 'Keep Ride', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await api.post(`/api/bookings/${rideId}/cancel`, {
+                reason: 'Cancelled by customer via dashboard',
+              });
+              Alert.alert(
+                'Ride Cancelled',
+                res.data?.message || 'Your ride has been cancelled and full payment has been refunded to your wallet.'
+              );
+              setRides((prev) =>
+                prev.map((r) =>
+                  r.id === rideId
+                    ? { ...r, status: 'cancelled', cancellationReason: 'Cancelled by customer via dashboard' }
+                    : r
+                )
+              );
+            } catch (err: any) {
+              console.error('Error cancelling ride:', err);
+              Alert.alert('Error', err?.response?.data?.message || 'Failed to cancel ride. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const fetchDashboardData = async () => {
     try {
       // 1. Fetch Bookings
@@ -538,10 +573,42 @@ export default function CustomerDashboard() {
                       <Text style={styles.rideType}>
                         {ride.tempoType ? `${ride.tempoType.toUpperCase()} TEMPO` : 'Tempo Ride'}
                       </Text>
-                      <View style={styles.statusBadge}>
-                        <Text style={styles.statusText}>{ride.status?.toUpperCase() || 'CONFIRMED'}</Text>
+                      <View style={[
+                        styles.statusBadge,
+                        ride.status === 'cancelled' && { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.4)' },
+                        ride.status === 'pending' && { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)' },
+                      ]}>
+                        <Text style={[
+                          styles.statusText,
+                          ride.status === 'cancelled' && { color: ride.cancellationReason?.toLowerCase().includes('expire') ? '#f59e0b' : '#ef4444' },
+                          ride.status === 'pending' && { color: '#60a5fa' },
+                        ]}>
+                          {ride.status === 'cancelled'
+                            ? (ride.cancellationReason?.toLowerCase().includes('expire') ? 'EXPIRED' : 'CANCELLED')
+                            : (ride.status?.toUpperCase() || 'CONFIRMED')}
+                        </Text>
                       </View>
                     </View>
+
+                    {/* Expiry deadline pill for pending bookings */}
+                    {ride.status === 'pending' && (
+                      <View style={styles.pendingExpiryRow}>
+                        <Text style={styles.pendingExpiryText}>
+                          ⏳ Expires: {ride.expiresAt 
+                            ? `${new Date(ride.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${new Date(ride.expiresAt).toLocaleDateString()})` 
+                            : 'Within 24 Hours'}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Cancellation reason for cancelled bookings */}
+                    {ride.status === 'cancelled' && (
+                      <View style={styles.cancelledNoteRow}>
+                        <Text style={styles.cancelledNoteText}>
+                          {ride.cancellationReason || 'Booking cancelled'} • 100% wallet refunded
+                        </Text>
+                      </View>
+                    )}
 
                     <View style={styles.routeContainer}>
                       <View style={styles.routeItem}>
@@ -565,6 +632,18 @@ export default function CustomerDashboard() {
                       </Text>
                       <Text style={styles.rideFare}>₹{ride.estimatedFare || ride.fare || 450}</Text>
                     </View>
+
+                    {/* Cancel Ride Action Button for Pending Rides */}
+                    {ride.status === 'pending' && (
+                      <View style={styles.cancelRideRow}>
+                        <TouchableOpacity
+                          style={styles.cancelRideBtn}
+                          onPress={() => handleCancelRide(ride.id)}
+                        >
+                          <Text style={styles.cancelRideBtnText}>❌ Cancel Ride</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
 
                     {/* Rate Driver Button for Completed Dynamic Rides */}
                     {(ride.status?.toLowerCase() === 'completed' || ride.status === 'COMPLETED') && (
@@ -1865,5 +1944,53 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 11,
     marginTop: 2,
+  },
+  pendingExpiryRow: {
+    backgroundColor: '#272016',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  pendingExpiryText: {
+    color: '#fbbf24',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: '700',
+  },
+  cancelledNoteRow: {
+    backgroundColor: '#451a1a',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  cancelledNoteText: {
+    color: '#fca5a5',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  cancelRideRow: {
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#2f3a4e',
+    paddingTop: 8,
+  },
+  cancelRideBtn: {
+    backgroundColor: '#dc2626',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelRideBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

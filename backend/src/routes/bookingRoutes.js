@@ -8,6 +8,7 @@ router.post('/', bookingsLimiter, protect, bookingController.createBooking);
 router.get('/', bookingsLimiter, protect, bookingController.getAllBookings);
 router.get('/:id', bookingsLimiter, protect, bookingController.getBookingById);
 router.put('/:id/status', bookingsLimiter, protect, bookingController.updateBookingStatus);
+router.post('/:id/cancel', bookingsLimiter, protect, bookingController.cancelBooking);
 router.post('/:id/complete', bookingsLimiter, protect, bookingController.completeBooking);
 router.post('/ai-booking', aiBookingLimiter, protect, bookingController.aiVoiceBooking);
 

@@ -130,6 +130,18 @@ const Booking = sequelize.define('Booking', {
   podHash: {
     type: DataTypes.STRING,
     allowNull: true,
+  },
+  expiresAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  cancellationReason: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  cancelledBy: {
+    type: DataTypes.STRING,
+    allowNull: true,
   }
 }, {
   timestamps: true,

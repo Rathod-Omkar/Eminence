@@ -121,7 +121,10 @@ const bootstrapDatabase = async () => {
           ADD COLUMN IF NOT EXISTS "thirdPartyProvider" VARCHAR(255),
           ADD COLUMN IF NOT EXISTS "podHash" VARCHAR(255),
           ADD COLUMN IF NOT EXISTS "queuePosition" INTEGER DEFAULT 1,
-          ADD COLUMN IF NOT EXISTS "vehicleId" UUID;
+          ADD COLUMN IF NOT EXISTS "vehicleId" UUID,
+          ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP WITH TIME ZONE,
+          ADD COLUMN IF NOT EXISTS "cancellationReason" VARCHAR(255),
+          ADD COLUMN IF NOT EXISTS "cancelledBy" VARCHAR(50);
       `);
 
       await sequelize.query(`
@@ -147,7 +150,19 @@ const bootstrapDatabase = async () => {
       // For SQLite test environment, use a similar partial index
       await sequelize.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS "unique_signup_bonus" ON "Transactions" ("walletId") WHERE description = 'Signup Referral Bonus';
-      `);
+      `).catch(() => {});
+
+      const addSqliteColumn = async (table, col, def) => {
+        try {
+          await sequelize.query(`ALTER TABLE "${table}" ADD COLUMN "${col}" ${def};`);
+        } catch (_err) {
+          // Column already exists
+        }
+      };
+
+      await addSqliteColumn('Bookings', 'expiresAt', 'DATETIME');
+      await addSqliteColumn('Bookings', 'cancellationReason', 'VARCHAR(255)');
+      await addSqliteColumn('Bookings', 'cancelledBy', 'VARCHAR(50)');
     }
   } catch (e) {
     console.warn('Bootstrap database note:', e.message);

@@ -39,7 +39,8 @@ if (!useSqlite && dbUrl) {
         /SequelizeHostNotReachableError/,
         /SequelizeInvalidConnectionError/,
         /SequelizeConnectionTimedOutError/,
-        /ECONNRESET/
+        /ECONNRESET/,
+        /Connection terminated unexpectedly/
       ],
       max: 3
     }

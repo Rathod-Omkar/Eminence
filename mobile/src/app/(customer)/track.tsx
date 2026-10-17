@@ -49,6 +49,7 @@ export default function TrackingScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [distanceRemaining, setDistanceRemaining] = useState<number | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -232,6 +233,48 @@ export default function TrackingScreen() {
     }
   };
 
+  const handleCancelBooking = () => {
+    if (!bookingId) return;
+    Alert.alert(
+      'Cancel Booking',
+      'Are you sure you want to cancel this booking? If you have paid in advance, 100% of the fare will be immediately refunded to your wallet.',
+      [
+        { text: 'Keep Booking', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setCancelling(true);
+              const res = await api.post(`/api/bookings/${bookingId}/cancel`, {
+                reason: 'Cancelled by customer via mobile app',
+              });
+              Alert.alert(
+                'Booking Cancelled',
+                res.data?.message || 'Your booking has been cancelled and full payment has been refunded to your wallet.'
+              );
+              setStatus('cancelled');
+              setBooking((prev: any) => ({
+                ...prev,
+                status: 'cancelled',
+                cancellationReason: 'Cancelled by customer via mobile app',
+                cancelledBy: 'customer',
+              }));
+            } catch (err: any) {
+              console.error('Error cancelling booking:', err);
+              Alert.alert(
+                'Error',
+                err?.response?.data?.message || 'Failed to cancel booking. Please try again.'
+              );
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const getStatusLabel = () => {
     switch (status) {
       case 'pending':
@@ -245,7 +288,9 @@ export default function TrackingScreen() {
       case 'completed':
         return 'Delivered Successfully!';
       case 'cancelled':
-        return 'Booking Cancelled';
+        return booking?.cancellationReason?.toLowerCase().includes('expire')
+          ? 'Booking Expired (Untouched)'
+          : 'Booking Cancelled';
       default:
         return 'Live Tracking Active';
     }
@@ -263,6 +308,8 @@ export default function TrackingScreen() {
         return '85%';
       case 'completed':
         return '100%';
+      case 'cancelled':
+        return '0%';
       default:
         return '25%';
     }
@@ -314,6 +361,51 @@ export default function TrackingScreen() {
             </Text>
           )}
         </View>
+
+        {/* Cancelled / Expired Banner */}
+        {status === 'cancelled' && (
+          <View style={styles.cancelledCard}>
+            <Text style={styles.cancelledTitle}>
+              {booking?.cancellationReason?.toLowerCase().includes('expire') ? '⚠️ Booking Expired' : '🚫 Booking Cancelled'}
+            </Text>
+            <Text style={styles.cancelledReason}>
+              {booking?.cancellationReason || 'This booking has been cancelled.'}
+            </Text>
+            <View style={styles.refundBox}>
+              <Text style={styles.refundText}>
+                ✓ 100% full refund credited to your wallet (if advance payment was made).
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Untouched Expiry Deadline & Cancellation for Pending Bookings */}
+        {status === 'pending' && (
+          <View style={styles.expiryCard}>
+            <View style={styles.expiryHeader}>
+              <Text style={styles.expiryTitle}>⏳ Untouched Expiry Deadline</Text>
+              <Text style={styles.expiryTime}>
+                {booking?.expiresAt
+                  ? `${new Date(booking.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${new Date(booking.expiresAt).toLocaleDateString()})`
+                  : 'Within 24 Hours'}
+              </Text>
+            </View>
+            <Text style={styles.expirySub}>
+              If no driver accepts your trip before this deadline, it will automatically expire and 100% of your payment will be refunded to your wallet.
+            </Text>
+            <TouchableOpacity
+              style={[styles.cancelBtn, cancelling && { opacity: 0.6 }]}
+              onPress={handleCancelBooking}
+              disabled={cancelling}
+            >
+              {cancelling ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.cancelBtnText}>❌ Cancel Booking</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Live Status Progression Card */}
         <View style={styles.statusCard}>
@@ -984,5 +1076,80 @@ const styles = StyleSheet.create({
     color: '#f4f6f8',
     fontSize: 11,
     fontWeight: '600',
+  },
+  cancelledCard: {
+    backgroundColor: '#451a1a',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  cancelledTitle: {
+    color: '#f87171',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  cancelledReason: {
+    color: '#fca5a5',
+    fontSize: 13,
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+  refundBox: {
+    backgroundColor: 'rgba(6, 78, 59, 0.4)',
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+  },
+  refundText: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  expiryCard: {
+    backgroundColor: '#272016',
+    borderColor: 'rgba(245, 158, 11, 0.5)',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  expiryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  expiryTitle: {
+    color: '#fbbf24',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  expiryTime: {
+    color: '#fef3c7',
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: '700',
+  },
+  expirySub: {
+    color: '#d1d5db',
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  cancelBtn: {
+    backgroundColor: '#dc2626',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

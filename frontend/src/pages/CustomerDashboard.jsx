@@ -265,6 +265,31 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
 
   // Trip History State
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [cancellingBookingId, setCancellingBookingId] = useState(null);
+  const [cancelModalBooking, setCancelModalBooking] = useState(null);
+  const [cancelReasonText, setCancelReasonText] = useState('');
+
+  const handleCancelBooking = async (bookingId, reason) => {
+    setCancellingBookingId(bookingId);
+    try {
+      const res = await api.post(`/api/bookings/${bookingId}/cancel`, {
+        reason: reason || 'Cancelled by customer via dashboard'
+      });
+      if (res.data?.success) {
+        await fetchBookings();
+        await fetchWallet();
+        setCancelModalBooking(null);
+        setCancelReasonText('');
+        if (selectedTrip && selectedTrip.id === bookingId) {
+          setSelectedTrip(null);
+        }
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to cancel booking. Please try again.');
+    } finally {
+      setCancellingBookingId(null);
+    }
+  };
 
   // Notifications State
   const [notifications, setNotifications] = useState([]);
@@ -933,19 +958,27 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                     <p className="text-loft-500 text-sm">Your ride history will appear here once you book your first trip.</p>
                   </div>
                 ) : bookings.map((booking) => {
-                  const statusLabel = booking.status === 'completed' ? 'Completed' : booking.status === 'cancelled' ? 'Cancelled' : booking.status;
+                  const isPending = booking.status === 'pending';
+                  const isExpired = (booking.status === 'cancelled' && (booking.cancellationReason?.toLowerCase().includes('expire') || booking.cancellationReason?.toLowerCase().includes('untouched'))) || booking.status === 'expired';
+                  const isCancelled = booking.status === 'cancelled' && !isExpired;
                   const isCompleted = booking.status === 'completed';
-                  const isCancelled = booking.status === 'cancelled';
+                  const statusLabel = isCompleted ? 'Completed' : isExpired ? 'Expired' : isCancelled ? 'Cancelled' : isPending ? 'Waiting for Driver' : booking.status;
                   return (
                   <div key={booking.id} className="card p-5 bg-loft-900 flex flex-col md:flex-row md:items-center justify-between gap-4 border-l-4 border-l-transparent hover:border-l-copper-500 transition-all">
                     <div>
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <span className="font-bold text-loft-50 font-mono text-sm">{booking.id?.slice(0, 8).toUpperCase()}</span>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          isCompleted ? 'bg-moss-500/20 text-moss-500' : isCancelled ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-400'
+                          isCompleted ? 'bg-moss-500/20 text-moss-500 border border-moss-500/30' : isExpired ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : isCancelled ? 'bg-red-500/20 text-red-500 border border-red-500/30' : isPending ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-blue-500/20 text-blue-400'
                         }`}>
                           {statusLabel}
                         </span>
+                        {isPending && booking.expiresAt && (
+                          <span className="text-xs text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1 font-mono">
+                            <Clock className="w-3 h-3 text-amber-400" />
+                            Expires: {new Date(booking.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
                         <span className="text-loft-400 text-sm">{new Date(booking.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-loft-300">
@@ -956,6 +989,16 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                         <MapPin className="w-4 h-4 text-copper-500" />
                         <span>{booking.pickupAddress || 'Pickup'} &rarr; {booking.dropAddress || (booking.drops?.[0]) || 'Drop'}</span>
                       </div>
+                      {isExpired && (
+                        <p className="text-xs text-amber-400/90 mt-2 bg-amber-500/10 px-2.5 py-1 rounded border border-amber-500/20">
+                          ⏳ Expired due to no driver acceptance within validity window. Any advance payment was refunded to wallet.
+                        </p>
+                      )}
+                      {isCancelled && booking.cancellationReason && (
+                        <p className="text-xs text-red-400/90 mt-2 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20">
+                          Reason: {booking.cancellationReason}
+                        </p>
+                      )}
                       {booking.esgEmissions && (
                         <div className="flex flex-wrap items-center gap-3 mt-3">
                           <span className="flex items-center gap-1.5 text-xs text-moss-400 bg-moss-900/30 px-2 py-1 rounded-md border border-moss-800">
@@ -967,7 +1010,15 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                     </div>
                     <div className="flex items-center justify-between md:flex-col md:items-end gap-2">
                       <span className="text-xl font-bold text-loft-100">₹{parseFloat(booking.estimatedFare || 0).toLocaleString('en-IN')}</span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        {isPending && (
+                          <button
+                            onClick={() => setCancelModalBooking(booking)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 transition-all flex items-center gap-1"
+                          >
+                            <X className="w-3.5 h-3.5" /> Cancel
+                          </button>
+                        )}
                         {isCompleted && (
                           reviewedBookings[booking.id] ? (
                             <span className="text-xs font-semibold text-moss-400 bg-moss-900/30 px-2 py-1 rounded border border-moss-800">
@@ -2091,6 +2142,67 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Cancel Booking Confirmation Modal */}
+      <AnimatePresence>
+        {cancelModalBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-loft-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="card w-full max-w-md p-6 border border-red-500/30 shadow-2xl"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-4 text-red-400 mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-loft-50 text-center mb-1">Cancel Delivery Booking?</h3>
+              <p className="text-xs text-loft-300 text-center mb-4 leading-relaxed">
+                Booking Reference <span className="font-mono text-copper-400 font-bold">#{cancelModalBooking.id?.slice(0, 8).toUpperCase()}</span>.
+                If any payment was already deducted, it will be automatically and immediately refunded to your wallet balance.
+              </p>
+              
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-loft-300 mb-1">Reason for Cancellation (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Changed plans, driver not needed"
+                  value={cancelReasonText}
+                  onChange={(e) => setCancelReasonText(e.target.value)}
+                  className="input-field text-xs py-2"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={cancellingBookingId === cancelModalBooking.id}
+                  onClick={() => { setCancelModalBooking(null); setCancelReasonText(''); }}
+                  className="btn-secondary w-full py-2.5 text-xs"
+                >
+                  Keep Booking
+                </button>
+                <button
+                  type="button"
+                  disabled={cancellingBookingId === cancelModalBooking.id}
+                  onClick={() => handleCancelBooking(cancelModalBooking.id, cancelReasonText)}
+                  className="w-full py-2.5 text-xs font-semibold rounded-xl bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-red-600/20 disabled:opacity-50"
+                >
+                  {cancellingBookingId === cancelModalBooking.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Cancelling...
+                    </span>
+                  ) : (
+                    'Yes, Cancel Booking'
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Trip Details Modal */}
       <AnimatePresence>
         {selectedTrip && (
@@ -2113,29 +2225,43 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
               <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
                   <div>
-                    <h3 className="text-xl font-bold text-loft-50">{selectedTrip.id}</h3>
-                    <p className="text-sm text-loft-400">{selectedTrip.date}</p>
+                    <h3 className="text-xl font-bold text-loft-50 font-mono">#{selectedTrip.id?.slice(0, 8).toUpperCase() || selectedTrip.id}</h3>
+                    <p className="text-sm text-loft-400">{selectedTrip.date ? new Date(selectedTrip.date).toLocaleDateString() : (selectedTrip.createdAt ? new Date(selectedTrip.createdAt).toLocaleDateString() : '')}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
-                    selectedTrip.status === 'Completed' ? 'bg-moss-500/20 text-moss-500' : 'bg-red-500/20 text-red-500'
+                    selectedTrip.status === 'completed' || selectedTrip.status === 'Completed' ? 'bg-moss-500/20 text-moss-500' : selectedTrip.status === 'pending' ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-500'
                   }`}>
                     {selectedTrip.status}
                   </span>
                 </div>
+
+                {selectedTrip.expiresAt && selectedTrip.status === 'pending' && (
+                  <div className="flex justify-between items-center text-xs text-amber-400 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20 mb-4 font-mono">
+                    <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Untouched Expiry:</span>
+                    <span>{new Date(selectedTrip.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({new Date(selectedTrip.expiresAt).toLocaleDateString()})</span>
+                  </div>
+                )}
+
+                {selectedTrip.cancellationReason && (
+                  <div className="text-xs text-red-400 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20 mb-4">
+                    <span className="font-semibold block mb-0.5">Cancellation Reason:</span>
+                    {selectedTrip.cancellationReason}
+                  </div>
+                )}
 
                 <div className="space-y-4 mb-6">
                   <div className="flex items-start gap-3">
                     <div className="mt-1 w-2 h-2 rounded-full bg-copper-500"></div>
                     <div>
                       <p className="text-xs text-loft-400 uppercase tracking-wider mb-1">Pickup</p>
-                      <p className="text-sm font-medium text-loft-100">{selectedTrip.from}</p>
+                      <p className="text-sm font-medium text-loft-100">{selectedTrip.pickupAddress || selectedTrip.from || 'Pickup Location'}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <div className="mt-1 w-2 h-2 rounded-full bg-moss-500"></div>
                     <div>
                       <p className="text-xs text-loft-400 uppercase tracking-wider mb-1">Drop-off</p>
-                      <p className="text-sm font-medium text-loft-100">{selectedTrip.to}</p>
+                      <p className="text-sm font-medium text-loft-100">{selectedTrip.dropAddress || selectedTrip.to || 'Drop Location'}</p>
                     </div>
                   </div>
                 </div>
@@ -2143,21 +2269,38 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
                 <div className="border-t border-loft-800 pt-4 mb-6">
                   <h4 className="text-sm font-bold text-loft-200 mb-3">Fare Breakdown</h4>
                   <div className="flex justify-between text-sm text-loft-300 mb-2">
-                    <span>Base Fare</span>
-                    <span>{selectedTrip.amount}</span>
+                    <span>Estimated Fare</span>
+                    <span>₹{parseFloat(selectedTrip.estimatedFare || selectedTrip.amount || 0).toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold text-loft-50 mt-4 pt-4 border-t border-loft-800/50">
-                    <span>Total Paid</span>
-                    <span className="text-copper-500">{selectedTrip.amount}</span>
+                    <span>Total Amount</span>
+                    <span className="text-copper-500">₹{parseFloat(selectedTrip.estimatedFare || selectedTrip.amount || 0).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
-                <button 
-                  onClick={() => setSelectedTrip(null)}
-                  className="btn-secondary w-full py-3"
-                >
-                  Close Details
-                </button>
+                {selectedTrip.status === 'pending' ? (
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setCancelModalBooking(selectedTrip)}
+                      className="w-full py-2.5 px-4 rounded-xl border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <X className="w-4 h-4" /> Cancel Booking
+                    </button>
+                    <button 
+                      onClick={() => setSelectedTrip(null)}
+                      className="btn-secondary w-full py-2.5 text-xs"
+                    >
+                      Close Details
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setSelectedTrip(null)}
+                    className="btn-secondary w-full py-3"
+                  >
+                    Close Details
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
