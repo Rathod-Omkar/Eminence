@@ -462,12 +462,31 @@ export default function BookScreen() {
 
         if (paymentMethod === 'online') {
           try {
-            const orderRes = await api.post('/api/integrations/razorpay-order', { bookingId });
+            let orderRes;
+            try {
+              orderRes = await api.post('/api/integrations/payment/create-order', { bookingId });
+            } catch {
+              orderRes = await api.post('/api/integrations/razorpay-order', { bookingId });
+            }
+            const order = orderRes.data?.order;
             setCurrentBookingId(bookingId);
-            setCurrentOrder(orderRes.data?.order);
+            setCurrentOrder(order);
             setShowRazorpay(true);
-          } catch {
-            setErrorMessage('Razorpay initialization failed');
+
+            // Auto-redirect to UPI app present on user's device
+            const amount = order?.amount ? (order.amount / 100).toFixed(2) : estimatedFare.toFixed(2);
+            const upiUrl = `upi://pay?pa=eminence.logistics@icici&pn=Eminence%20Logistics&am=${amount}&cu=INR&tn=Booking%20${bookingId}`;
+            try {
+              const canOpen = await Linking.canOpenURL(upiUrl);
+              if (canOpen) {
+                await Linking.openURL(upiUrl);
+              }
+            } catch (upiErr) {
+              console.log('UPI intent check:', upiErr);
+            }
+          } catch (err: any) {
+            console.error('Payment order creation error:', err);
+            setErrorMessage(err.response?.data?.message || 'Payment initialization failed. Please try again.');
           }
         } else {
           router.replace(`/(customer)/track?bookingId=${bookingId}` as any);
@@ -483,14 +502,20 @@ export default function BookScreen() {
   };
 
   const handleRazorpaySuccess = async () => {
-    if (!currentBookingId || !currentOrder) return;
+    if (!currentBookingId) return;
     setIsSubmitting(true);
     try {
-      await api.post('/api/integrations/razorpay-verify', {
-        razorpay_order_id: currentOrder.id,
+      const payload = {
+        bookingId: currentBookingId,
+        razorpay_order_id: currentOrder?.id || ('order_mock_' + Date.now()),
         razorpay_payment_id: 'pay_mock_' + Math.random().toString(36).substring(7),
         razorpay_signature: 'mock_signature',
-      });
+      };
+      try {
+        await api.post('/api/integrations/payment/verify', payload);
+      } catch {
+        await api.post('/api/integrations/razorpay-verify', payload);
+      }
       setShowRazorpay(false);
       router.replace(`/(customer)/track?bookingId=${currentBookingId}` as any);
     } catch {
@@ -1719,40 +1744,66 @@ export default function BookScreen() {
         </View>
       </Modal>
 
-      {/* RAZORPAY NATIVE MODAL MOCK */}
+      {/* RAZORPAY NATIVE / DIRECT UPI CHECKOUT MODAL */}
       <Modal visible={showRazorpay} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, backgroundColor: '#0f141f', padding: 20, justifyContent: 'center' }}>
-          <View style={{ backgroundColor: '#1a2235', padding: 24, borderRadius: 16, alignItems: 'center' }}>
-            <Text style={{ fontSize: 40, marginBottom: 12 }}>⚡</Text>
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 8 }}>
-              Razorpay Checkout (Mock)
+          <View style={{ backgroundColor: '#1a2235', padding: 24, borderRadius: 18, alignItems: 'center', borderWidth: 1, borderColor: '#334155' }}>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#064e3b', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 32 }}>📱</Text>
+            </View>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 4 }}>
+              Direct UPI / Online Checkout
             </Text>
-            <Text style={{ color: '#b87333', fontSize: 24, fontWeight: 'bold', marginBottom: 24 }}>
-              ₹{currentOrder?.amount ? currentOrder.amount / 100 : estimatedFare}
+            <Text style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', marginBottom: 16 }}>
+              Amount Payable
+            </Text>
+            <Text style={{ color: '#e86331', fontSize: 28, fontWeight: 'bold', marginBottom: 16 }}>
+              ₹{currentOrder?.amount ? (currentOrder.amount / 100).toFixed(2) : estimatedFare.toFixed(2)}
             </Text>
 
-            <TouchableOpacity
-              style={[styles.confirmBtn, { width: '100%', marginBottom: 12, backgroundColor: '#059669' }]}
-              onPress={handleUpiPayment}
-            >
-              <Text style={styles.confirmBtnText}>Pay via UPI (GPay / PhonePe / Paytm)</Text>
-            </TouchableOpacity>
+            <View style={{ backgroundColor: 'rgba(5, 150, 105, 0.15)', borderWidth: 1, borderColor: '#059669', borderRadius: 10, padding: 12, width: '100%', marginBottom: 20 }}>
+              <Text style={{ color: '#34d399', fontSize: 13, fontWeight: '600', marginBottom: 2, textAlign: 'center' }}>
+                ⚡ UPI App Dispatched
+              </Text>
+              <Text style={{ color: '#cbd5e1', fontSize: 12, textAlign: 'center', lineHeight: 18 }}>
+                If your UPI app (Google Pay, PhonePe, Paytm) opened, authorize payment and tap below to confirm.
+              </Text>
+            </View>
 
             <TouchableOpacity
-              style={[styles.confirmBtn, { width: '100%', marginBottom: 12 }]}
+              style={[styles.confirmBtn, { width: '100%', marginBottom: 10, backgroundColor: '#059669' }]}
               onPress={handleRazorpaySuccess}
+              disabled={isSubmitting}
             >
-              <Text style={styles.confirmBtnText}>Pay via Cards / NetBanking</Text>
+              {isSubmitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.confirmBtnText}>✅ Payment Approved — Confirm & Track</Text>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.confirmBtn,
-                { width: '100%', backgroundColor: 'transparent', borderWidth: 1, borderColor: '#334155' },
-              ]}
-              onPress={() => setShowRazorpay(false)}
+              style={[styles.confirmBtn, { width: '100%', marginBottom: 10, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#3b82f6' }]}
+              onPress={handleUpiPayment}
+              disabled={isSubmitting}
             >
-              <Text style={styles.confirmBtnText}>Cancel Payment</Text>
+              <Text style={[styles.confirmBtnText, { color: '#60a5fa' }]}>📱 Re-launch UPI (GPay / PhonePe / Paytm)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.confirmBtn, { width: '100%', marginBottom: 12, backgroundColor: '#2d3748' }]}
+              onPress={handleRazorpaySuccess}
+              disabled={isSubmitting}
+            >
+              <Text style={styles.confirmBtnText}>💳 Pay via Cards / NetBanking / Mock</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ paddingVertical: 10 }}
+              onPress={() => setShowRazorpay(false)}
+              disabled={isSubmitting}
+            >
+              <Text style={{ color: '#94a3b8', fontSize: 13 }}>Cancel Payment</Text>
             </TouchableOpacity>
           </View>
         </View>

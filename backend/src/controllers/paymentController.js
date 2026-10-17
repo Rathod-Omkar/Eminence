@@ -58,9 +58,9 @@ const createOrder = async (req, res) => {
   }
 };
 
-const verifyPayment = (req, res) => {
+const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingId } = req.body;
 
     const isMock = process.env.RAZORPAY_KEY_ID === 'rzp_test_mock' || !process.env.RAZORPAY_KEY_ID;
     if (isMock) {
@@ -69,6 +69,14 @@ const verifyPayment = (req, res) => {
           success: false,
           message: 'Mock payment verification is prohibited in production mode.'
         });
+      }
+      if (bookingId) {
+        try {
+          const { Booking } = require('../models');
+          await Booking.update({ paymentStatus: 'completed' }, { where: { id: bookingId } });
+        } catch (dbErr) {
+          console.warn('Could not update booking payment status:', dbErr.message);
+        }
       }
       return res.status(200).json({ success: true, message: 'Payment verified (Mock)' });
     }
@@ -80,6 +88,14 @@ const verifyPayment = (req, res) => {
       .digest("hex");
 
     if (razorpay_signature === expectedSign) {
+      if (bookingId) {
+        try {
+          const { Booking } = require('../models');
+          await Booking.update({ paymentStatus: 'completed' }, { where: { id: bookingId } });
+        } catch (dbErr) {
+          console.warn('Could not update booking payment status:', dbErr.message);
+        }
+      }
       return res.status(200).json({ success: true, message: 'Payment verified successfully' });
     } else {
       return res.status(400).json({ success: false, message: 'Invalid signature' });

@@ -10,7 +10,9 @@ const router = express.Router();
 
 // Razorpay Payment Endpoints with rate limiting
 router.post('/payment/create-order', authLimiter, createOrder);
+router.post('/razorpay-order', authLimiter, createOrder);
 router.post('/payment/verify', authLimiter, verifyPayment);
+router.post('/razorpay-verify', authLimiter, verifyPayment);
 router.post('/razorpay-webhook', razorpayWebhook);
 
 const crypto = require('crypto');
