@@ -17,10 +17,13 @@ const CustomTooltip = ({ active, payload }) => {
 
 const CustomRouteTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
+    const trips = payload[0].value;
     return (
       <div className="bg-loft-900 border border-loft-800 p-3 rounded-xl shadow-xl max-w-xs">
         <p className="text-xs text-loft-200 font-bold">{payload[0].payload.route}</p>
-        <p className="text-sm font-semibold text-moss-500 mt-1">{payload[0].value} trips completed</p>
+        <p className="text-sm font-semibold text-moss-500 mt-1">
+          {trips} completed {trips === 1 ? 'trip' : 'trips'}
+        </p>
       </div>
     );
   }
@@ -91,19 +94,26 @@ const OverviewTab = () => {
             <p className="text-xs text-loft-400">Top 5 trip destinations</p>
           </div>
           <div className="h-56 w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={routeData} layout="vertical" margin={{ top: 10, right: 10, left: 30, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2c2420" horizontal={false} />
-                <XAxis type="number" stroke="#94a3b8" fontSize={11} />
-                <YAxis dataKey="route" type="category" stroke="#94a3b8" fontSize={10} width={120} tickLine={false} />
-                <Tooltip content={<CustomRouteTooltip />} />
-                <Bar dataKey="trips" fill="#229e64" radius={[0, 4, 4, 0]}>
-                  {routeData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={index === 0 ? '#e86331' : '#229e64'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {routeData && routeData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={routeData} layout="vertical" margin={{ top: 10, right: 10, left: 30, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2c2420" horizontal={false} />
+                  <XAxis type="number" stroke="#94a3b8" fontSize={11} allowDecimals={false} />
+                  <YAxis dataKey="route" type="category" stroke="#94a3b8" fontSize={10} width={120} tickLine={false} />
+                  <Tooltip content={<CustomRouteTooltip />} />
+                  <Bar dataKey="trips" fill="#229e64" radius={[0, 4, 4, 0]}>
+                    {routeData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index === 0 ? '#e86331' : '#229e64'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-loft-500 py-6">
+                <p className="text-xs text-loft-400">No completed route data yet</p>
+                <p className="text-[11px] text-loft-600 mt-1">Completed trips will appear here</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -476,12 +476,19 @@ const getRevenueAnalytics = async (req, res) => {
   }
 };
 
-// Get Route Analytics with limit and date filtering
+// Get Route Analytics with limit, status, and date filtering
 const getRouteAnalytics = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 5, 50);
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, status } = req.query;
     const where = {};
+
+    // Filter by status: default to 'completed' so completed trip analytics accurately reflect finished trips
+    if (status && status !== 'all') {
+      where.status = status;
+    } else if (!status) {
+      where.status = 'completed';
+    }
 
     if (startDate && endDate) {
       where.createdAt = { [Op.between]: [new Date(startDate), new Date(endDate)] };
