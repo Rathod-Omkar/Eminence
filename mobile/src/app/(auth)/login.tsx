@@ -11,18 +11,18 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
+// import * as WebBrowser from 'expo-web-browser';
+// import * as Google from 'expo-auth-session/providers/google';
 import { useAuth } from '../../context/AuthContext';
 import TermsModal from '../../components/TermsModal';
 import { Eye, EyeOff, Gift } from 'lucide-react-native';
 
-WebBrowser.maybeCompleteAuthSession();
+// WebBrowser.maybeCompleteAuthSession();
 
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { sendOtp, verifyOtp, adminLogin, googleLogin, registerWithPassword, loginWithPassword } = useAuth();
+  const { sendOtp, verifyOtp, adminLogin, /* googleLogin, */ registerWithPassword, loginWithPassword } = useAuth();
 
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -39,6 +39,7 @@ export default function LoginScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  /* Google Login / Sign-up temporarily disabled
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     clientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
@@ -69,6 +70,7 @@ export default function LoginScreen() {
       setErrorMessage(res.message || 'Google login failed');
     }
   };
+  */
 
   const handleSendOtp = async () => {
     const clean = phone.replace(/\D/g, '').slice(0, 10);
@@ -187,6 +189,7 @@ export default function LoginScreen() {
     }
   };
 
+  /*
   const handleGoogleSignIn = () => {
     if (!request) {
       setErrorMessage('Google Sign-In configuration is loading, please try again in a moment.');
@@ -194,6 +197,7 @@ export default function LoginScreen() {
     }
     promptAsync();
   };
+  */
 
   return (
     <KeyboardAvoidingView
@@ -330,6 +334,7 @@ export default function LoginScreen() {
                   </Text>
                 </View>
               ) : (
+                /* Google Login temporarily commented out
                 <>
                   <TouchableOpacity
                     style={[styles.primaryBtn, { backgroundColor: '#ffffff', marginBottom: 20, borderWidth: 1, borderColor: '#d1d5db', flexDirection: 'row', alignItems: 'center' }]}
@@ -346,6 +351,8 @@ export default function LoginScreen() {
                     <View style={{ flex: 1, height: 1, backgroundColor: '#2f3a4e' }} />
                   </View>
                 </>
+                */
+                null
               )}
 
               <View style={styles.inputGroup}>
