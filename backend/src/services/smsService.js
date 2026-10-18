@@ -108,8 +108,10 @@ const sendSMS = async (to, body) => {
     return { success: false, message: err };
   }
 
+  const currentApiKey = process.env.FAST2SMS_API_KEY || apiKey;
+
   // Fallback to mock logging if API key is not configured or in unit test environment
-  if (!apiKey || apiKey === 'your_api_key_here' || apiKey === 'your_fast2sms_api_key_here' || isTestEnv) {
+  if (!currentApiKey || currentApiKey === 'your_api_key_here' || currentApiKey === 'your_fast2sms_api_key_here' || isTestEnv) {
     if (process.env.NODE_ENV !== 'production' && !isTestEnv) {
       console.log(`[DEV MOCK SMS SENT TO +91 ${maskPhone(cleanPhone)}]: ${body}`);
     }
@@ -123,7 +125,7 @@ const sendSMS = async (to, body) => {
     // Strategy 1: If message contains a numeric OTP, attempt route=otp
     if (otpCode) {
       try {
-        const otpPath = `/dev/bulkV2?authorization=${apiKey}&route=otp&variables_values=${otpCode}&numbers=${cleanPhone}`;
+        const otpPath = `/dev/bulkV2?authorization=${currentApiKey}&route=otp&variables_values=${otpCode}&numbers=${cleanPhone}`;
         result = await callFast2Sms(otpPath);
         
         // If route=otp succeeded
@@ -137,7 +139,7 @@ const sendSMS = async (to, body) => {
     }
 
     // Strategy 2: Use route=q (Quick SMS) as default or fallback
-    const qPath = `/dev/bulkV2?authorization=${apiKey}&route=q&message=${encodeURIComponent(body)}&language=english&flash=0&numbers=${cleanPhone}`;
+    const qPath = `/dev/bulkV2?authorization=${currentApiKey}&route=q&message=${encodeURIComponent(body)}&language=english&flash=0&numbers=${cleanPhone}`;
     result = await callFast2Sms(qPath);
 
     if (result && result.return === true) {
