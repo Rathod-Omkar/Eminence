@@ -5,6 +5,33 @@ const { findPoolMatch } = require('../services/poolingEngine');
 const crypto = require('crypto');
 const { tryAcquireAiSlot, executeWithBoundedTimeout } = require('../services/aiUsageManager');
 
+// Helper to increment customer totalTrips and award ₹500 milestone wallet cash upon 10 rides
+const handleMilestoneReward = async (customerId, bookingId) => {
+  if (!customerId) return;
+  try {
+    await Customer.increment('totalTrips', { by: 1, where: { id: customerId } });
+    const cust = await Customer.findByPk(customerId);
+    if (cust && cust.totalTrips === 10) {
+      let custWallet = await Wallet.findOne({ where: { customerId: cust.id } });
+      if (!custWallet) {
+        custWallet = await Wallet.create({ customerId: cust.id, balance: 500.00 });
+      } else {
+        custWallet.balance = (parseFloat(custWallet.balance || 0) + 500.00).toFixed(2);
+        await custWallet.save();
+      }
+      await Transaction.create({
+        walletId: custWallet.id,
+        amount: 500.00,
+        type: 'CREDIT',
+        description: '🎉 Milestone Reward: Completed 10 rides! ₹500 Wallet Cash Credited',
+        referenceId: `MILESTONE-10-${bookingId || cust.id}`
+      });
+    }
+  } catch (err) {
+    console.error('[Milestone Reward Error]:', err);
+  }
+};
+
 // Get all bookings (role-aware: customers only see their own bookings)
 const getAllBookings = async (req, res) => {
   try {
@@ -377,7 +404,7 @@ const completeBooking = async (req, res) => {
 
     // Increment customer totalTrips for milestone tracking
     if (booking.customerId) {
-      await Customer.increment('totalTrips', { by: 1, where: { id: booking.customerId } }).catch(() => {});
+      await handleMilestoneReward(booking.customerId, booking.id);
     }
 
     // Broadcast completion to customer tracking room
@@ -583,7 +610,7 @@ const updateBookingStatus = async (req, res) => {
     // Advance driver's delivery queue if admin completes trip
     if (status === 'completed') {
       if (booking.customerId) {
-        await Customer.increment('totalTrips', { by: 1, where: { id: booking.customerId } }).catch(() => {});
+        await handleMilestoneReward(booking.customerId, booking.id);
       }
       if (booking.driverId) {
         const remainingTrips = await Booking.findAll({

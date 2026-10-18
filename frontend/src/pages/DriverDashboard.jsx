@@ -587,14 +587,16 @@ const DriverDashboard = () => {
 
                       {/* Appointed Action */}
                       <div className="relative z-10 pt-2">
-                        {demoSimulationEnabled && <button
+                        <button
+                          id="start-navigation-btn"
+                          type="button"
                           onClick={handleAcceptTrip} 
                           disabled={isLoading}
                           className="btn-primary w-full py-4 text-lg font-bold flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(232,99,49,0.35)] hover:shadow-[0_0_35px_rgba(232,99,49,0.5)] transition-all cursor-pointer"
                         >
                           <Navigation className="w-5 h-5" />
-                          Start Navigation & Delivery
-                        </button>}
+                          {activeRide.status === 'in_transit' ? 'Resume Live GPS Navigation' : 'Start Live GPS Navigation & Delivery'}
+                        </button>
                       </div>
                     </div>
 
@@ -779,7 +781,16 @@ const DriverDashboard = () => {
                   {/* Trip Controls & Two-Phase Verification Stepper */}
                   <div className="w-full md:w-80 space-y-4">
                     <div className="card p-6 border-moss-500/20">
-                      <h4 className="text-moss-400 font-bold mb-4 uppercase tracking-wider text-sm">Appointed Trip Details</h4>
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-moss-400 font-bold uppercase tracking-wider text-sm">Appointed Trip Details</h4>
+                        <button
+                          type="button"
+                          onClick={() => setIsNavigating(false)}
+                          className="text-xs text-loft-400 hover:text-loft-200 underline cursor-pointer"
+                        >
+                          View Order Card
+                        </button>
+                      </div>
                       <div className="space-y-4">
                         <div>
                           <p className="text-loft-400 text-xs">Customer Name</p>
