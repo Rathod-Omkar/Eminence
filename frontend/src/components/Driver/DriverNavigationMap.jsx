@@ -268,8 +268,10 @@ const MapCameraController = ({ centerPos, bounds, autoFollow, fitTrigger }) => {
   return null;
 };
 
+const DEFAULT_PUNE_COORDS = { lat: 18.5204, lng: 73.8567 };
+
 const DriverNavigationMap = ({
-  driverPos = { lat: 18.5204, lng: 73.8567 },
+  driverPos: rawDriverPos,
   activeRide,
   currentLeg: controlledLeg,
   onLegChange,
@@ -281,6 +283,14 @@ const DriverNavigationMap = ({
   isFinishingTrip = false,
   className = ''
 }) => {
+  // Ensure a valid driver position is guaranteed with Pune fallback
+  const driverPos = useMemo(() => {
+    if (rawDriverPos && typeof rawDriverPos.lat === 'number' && typeof rawDriverPos.lng === 'number' && !isNaN(rawDriverPos.lat) && !isNaN(rawDriverPos.lng)) {
+      return rawDriverPos;
+    }
+    return DEFAULT_PUNE_COORDS;
+  }, [rawDriverPos]);
+
   // Geocoded Coordinates
   const [pickupCoord, setPickupCoord] = useState(null);
   const [dropCoord, setDropCoord] = useState(null);
@@ -331,6 +341,16 @@ const DriverNavigationMap = ({
   const [simSpeedKmh, setSimSpeedKmh] = useState(42);
   const [autoFollow, setAutoFollow] = useState(true);
   const [fitTrigger, setFitTrigger] = useState(0);
+
+  const currentPos = (simPos && typeof simPos.lat === 'number' && typeof simPos.lng === 'number' && !isNaN(simPos.lat))
+    ? simPos
+    : driverPos;
+
+  useEffect(() => {
+    if (driverPos?.lat && driverPos?.lng) {
+      setSimPos(prev => (prev && typeof prev.lat === 'number' ? prev : driverPos));
+    }
+  }, [driverPos]);
 
   const pickupAddress = activeRide?.pickup || activeRide?.pickupAddress || 'Pickup Origin';
   const dropoffAddress = activeRide?.dropoff || activeRide?.dropAddress || 'Destination';
@@ -641,22 +661,22 @@ const DriverNavigationMap = ({
 
   const mapBounds = useMemo(() => {
     const list = [];
-    if (driverPos?.lat) list.push([driverPos.lat, driverPos.lng]);
+    if (currentPos?.lat && currentPos?.lng) list.push([currentPos.lat, currentPos.lng]);
     if (pickupCoord?.lat) list.push([pickupCoord.lat, pickupCoord.lng]);
     if (dropCoord?.lat) list.push([dropCoord.lat, dropCoord.lng]);
     return list;
-  }, [driverPos, pickupCoord, dropCoord]);
+  }, [currentPos?.lat, currentPos?.lng, pickupCoord?.lat, pickupCoord?.lng, dropCoord?.lat, dropCoord?.lng]);
 
   const currentDestination = activeLeg === 'to_pickup' ? pickupAddress : dropoffAddress;
   const currentTargetCoord = activeLeg === 'to_pickup' ? pickupCoord : dropCoord;
 
   const googleMapsUrl = useMemo(() => {
-    const origin = simPos ? `${simPos.lat},${simPos.lng}` : '';
+    const origin = currentPos ? `${currentPos.lat},${currentPos.lng}` : '';
     const dest = currentTargetCoord 
       ? `${currentTargetCoord.lat},${currentTargetCoord.lng}` 
       : encodeURIComponent(currentDestination);
     return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
-  }, [simPos, currentTargetCoord, currentDestination]);
+  }, [currentPos?.lat, currentPos?.lng, currentTargetCoord, currentDestination]);
 
   return (
     <div className={`flex-1 card overflow-hidden relative min-h-[520px] md:min-h-[580px] border-copper-500/30 flex flex-col ${className}`}>
@@ -854,7 +874,7 @@ const DriverNavigationMap = ({
       {/* Interactive Leaflet Map */}
       <div className="relative w-full h-full min-h-[460px] flex-1 z-0">
         <MapContainer
-          center={[simPos.lat, simPos.lng]}
+          center={[currentPos.lat, currentPos.lng]}
           zoom={14}
           scrollWheelZoom={true}
           zoomControl={false}
@@ -867,7 +887,7 @@ const DriverNavigationMap = ({
           />
 
           <MapCameraController 
-            centerPos={simPos} 
+            centerPos={currentPos} 
             bounds={mapBounds} 
             autoFollow={autoFollow}
             fitTrigger={fitTrigger}
@@ -875,7 +895,7 @@ const DriverNavigationMap = ({
 
           {/* Moving Tempo Truck Marker (Rotates along road bearing) */}
           <Marker 
-            position={[simPos.lat, simPos.lng]} 
+            position={[currentPos.lat, currentPos.lng]} 
             icon={createRotatingTruckIcon(simBearing, isSimulating, simSpeedKmh)}
           >
             <Popup>
@@ -887,7 +907,7 @@ const DriverNavigationMap = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-loft-700">
-                  <strong>GPS:</strong> {simPos.lat.toFixed(5)}, {simPos.lng.toFixed(5)}
+                  <strong>GPS:</strong> {currentPos.lat.toFixed(5)}, {currentPos.lng.toFixed(5)}
                 </p>
                 <p className="text-[11px] text-loft-700 mt-0.5">
                   <strong>Heading:</strong> {Math.round(simBearing)}° • {progressPercent}% of {activeLeg === 'to_pickup' ? 'Leg 1' : 'Leg 2'}

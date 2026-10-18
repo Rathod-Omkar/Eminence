@@ -30,7 +30,7 @@ const DriverDashboard = () => {
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [activeRide, setActiveRide] = useState(null);
-  const [driverPos, setDriverPos] = useState(null);
+  const [driverPos, setDriverPos] = useState({ lat: 18.5204, lng: 73.8567 });
   const [podHash, setPodHash] = useState(null);
   const [showPod, setShowPod] = useState(false);
   const [isFinishingTrip, setIsFinishingTrip] = useState(false);
@@ -145,6 +145,7 @@ const DriverDashboard = () => {
       return;
     }
 
+    if (!navigator?.geolocation) return;
     const watchId = navigator.geolocation.watchPosition(
       ({ coords }) => {
         setDriverPos({ lat: coords.latitude, lng: coords.longitude });
