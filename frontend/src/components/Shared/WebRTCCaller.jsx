@@ -28,8 +28,9 @@ const WebRTCCaller = () => {
     });
 
     newPeer.on('error', (err) => {
-      console.error('Peer error:', err);
-      setStatus('error');
+      console.warn('WebRTC background peer notice:', err?.message || err);
+      // Only show error toast if the user was actively attempting to place or in a call
+      setStatus((prev) => (prev === 'calling' ? 'error' : 'idle'));
     });
 
     setPeer(newPeer);

@@ -9,8 +9,7 @@ const CURRENT_TERMS_VERSION = 'v1.0';
 
 // Helper to check if profile is complete
 const checkAndSetProfileComplete = async (customer) => {
-  if (customer.name && customer.email && customer.phone && customer.isEmailVerified && customer.isPhoneVerified &&
-      customer.city && customer.state && customer.address) {
+  if (customer.name && (customer.email || customer.phone)) {
     customer.isProfileComplete = true;
     await customer.save();
   }
@@ -667,7 +666,7 @@ const phoneVerify = async (req, res) => {
         }
         
         // inline checkAndSetProfileComplete since we modify it
-        if (customer.name && customer.email && customer.phone && customer.isEmailVerified && customer.isPhoneVerified && customer.city && customer.state && customer.address && customer.governmentId) {
+        if (customer.name && (customer.email || customer.phone)) {
           customer.isProfileComplete = true;
           await customer.save();
         }
@@ -759,7 +758,7 @@ const phoneVerify = async (req, res) => {
       }
       await user.save();
       
-      if (user.name && user.email && user.phone && user.isEmailVerified && user.isPhoneVerified && user.city && user.state && user.address) {
+      if (user.name && (user.email || user.phone)) {
           user.isProfileComplete = true;
           await user.save();
       }

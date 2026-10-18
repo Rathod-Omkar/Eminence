@@ -91,13 +91,12 @@ const Register = () => {
           googleId: data.user.googleId
         }));
 
-        if (!data.user.isProfileComplete) {
-          navigate('/complete-profile');
-        } else if (from) {
-          navigate(from, { state: location.state, replace: true });
-        } else {
-          navigate(`/${data.user.role || activeTab}/dashboard`);
-        }
+        const targetRoute = from || (data.user.role === 'admin'
+          ? '/admin/dashboard'
+          : data.user.role === 'driver'
+            ? '/driver/dashboard'
+            : '/customer/dashboard');
+        navigate(targetRoute, { state: location.state, replace: true });
       }
     } catch (error) {
       console.error("Google Sign-Up Error", error);
