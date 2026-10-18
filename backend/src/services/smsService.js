@@ -25,10 +25,11 @@ const sendSMS = (to, body) => {
         return str.slice(0, -4).replace(/./g, '*') + str.slice(-4);
       };
 
-      console.log(`\n================================`);
-      console.log(`MOCK SMS SENT TO: ${maskPhone(to)}`);
-      console.log(`BODY: ${body}`);
-      console.log(`================================\n`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[DEV MOCK SMS SENT TO: ${maskPhone(to)}: ${body}]`);
+      } else {
+        console.warn(`[SMS WARNING] Fast2SMS credentials not configured in production. SMS to ${maskPhone(to)} was not dispatched.`);
+      }
       return resolve(null);
     }
     

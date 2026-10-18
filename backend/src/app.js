@@ -10,6 +10,16 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const helmet = require('helmet');
 
 const app = express();
+
+// Trust reverse proxy (e.g. Render, Vercel, Cloudflare, ALB) for accurate client IP rate limiting
+const trustProxyEnv = process.env.TRUST_PROXY;
+if (trustProxyEnv !== undefined) {
+  const parsed = parseInt(trustProxyEnv, 10);
+  app.set('trust proxy', isNaN(parsed) ? trustProxyEnv : parsed);
+} else if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cookieParser());
 
@@ -110,5 +120,18 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/ivr', ivrRoutes);
 app.use('/api/support', supportRoutes);
 
+// Global production-safe error handler (prevents stack traces leaking to clients)
+app.use((err, _req, res, _next) => {
+  if (err.message && err.message.startsWith('CORS blocked')) {
+    return res.status(403).json({ success: false, message: 'Origin not allowed by CORS' });
+  }
+  const isProd = process.env.NODE_ENV === 'production';
+  const status = err.status || err.statusCode || 500;
+  return res.status(status).json({
+    success: false,
+    message: isProd ? 'Internal server error' : (err.message || 'Internal server error'),
+    ...(isProd ? {} : { stack: err.stack })
+  });
+});
 
 module.exports = app;

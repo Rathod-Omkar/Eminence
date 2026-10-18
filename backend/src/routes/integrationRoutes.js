@@ -3,23 +3,21 @@ const { createOrder, verifyPayment, razorpayWebhook } = require('../controllers/
 const { generateInvoice } = require('../controllers/invoiceController');
 const { sendEmail } = require('../services/emailService');
 const { apiLimiter, authLimiter, contactLimiter } = require('../middleware/rateLimiter');
+const protect = require('../middleware/authMiddleware');
+const crypto = require('crypto');
 const { z } = require('zod');
 
 const router = express.Router();
 
-
-// Razorpay Payment Endpoints with rate limiting
-router.post('/payment/create-order', authLimiter, createOrder);
-router.post('/razorpay-order', authLimiter, createOrder);
-router.post('/payment/verify', authLimiter, verifyPayment);
-router.post('/razorpay-verify', authLimiter, verifyPayment);
+// Razorpay Payment Endpoints (protected by authentication & per-user rate limiting)
+router.post('/payment/create-order', protect, authLimiter, createOrder);
+router.post('/razorpay-order', protect, authLimiter, createOrder);
+router.post('/payment/verify', protect, authLimiter, verifyPayment);
+router.post('/razorpay-verify', protect, authLimiter, verifyPayment);
 router.post('/razorpay-webhook', razorpayWebhook);
 
-const crypto = require('crypto');
-const protect = require('../middleware/authMiddleware');
-
 // Invoices (protected by authentication: requires valid bearer token, cookie, or query token)
-router.get('/invoice/:bookingId', apiLimiter, protect, generateInvoice);
+router.get('/invoice/:bookingId', protect, apiLimiter, generateInvoice);
 
 // WhatsApp Webhooks
 router.get('/whatsapp-webhook', (req, res) => {

@@ -26,8 +26,17 @@ const adminLogin = async (req, res) => {
     }
 
     let isMatch = await bcrypt.compare(password, admin.password);
-    if (!isMatch && (password === 'adminpassword123' || password === (process.env.SEED_PASSWORD || 'password123'))) {
-      isMatch = true;
+    // Never permit fallback passwords in production; dev fallback restricted strictly to primary seed admin
+    // Strict non-production dev fallback ONLY for primary seed admin
+    if (!isMatch && process.env.NODE_ENV !== 'production') {
+      const primaryEmail = (process.env.SEED_EMAIL || 'admin@eminence.com').toLowerCase();
+      if (
+        admin.email &&
+        admin.email.toLowerCase() === primaryEmail &&
+        (password === (process.env.SEED_PASSWORD || 'password123') || password === 'adminpassword123')
+      ) {
+        isMatch = true;
+      }
     }
 
     if (!isMatch) {

@@ -3,6 +3,7 @@ const { optimizeRoute, getRouteDistance } = require('../services/routeOptimizer'
 const { geocodeAddress } = require('../services/geocoder');
 const { findPoolMatch } = require('../services/poolingEngine');
 const crypto = require('crypto');
+const { tryAcquireAiSlot, executeWithBoundedTimeout } = require('../services/aiUsageManager');
 
 // Get all bookings (role-aware: customers only see their own bookings)
 const getAllBookings = async (req, res) => {
@@ -49,8 +50,8 @@ const createBooking = async (req, res) => {
     let customerId = req.user?.id;
     if (req.user?.role === 'admin' && req.body.customerId) {
       customerId = req.body.customerId;
-    } else if (req.user?.role === 'admin') {
-      // If admin is testing the frontend without providing a customerId, pick a fallback demo customer
+    } else if (req.user?.role === 'admin' && process.env.NODE_ENV !== 'production') {
+      // If admin is testing the frontend in dev/test without providing a customerId, pick a fallback demo customer
       const demoCustomer = await Customer.findOne();
       if (demoCustomer) customerId = demoCustomer.id;
     }
@@ -777,8 +778,11 @@ const aiVoiceBooking = async (req, res) => {
       });
     }
 
+    // Input truncation: bound to max 500 characters
+    const safeTranscript = transcript.trim().slice(0, 500);
+
     // Use Groq NLP Parsing of Transcript
-    console.log(`[AI Agent] Received Voice Transcript: "${transcript}"`);
+    console.log(`[AI Agent] Received Voice Transcript: "${safeTranscript}"`);
     
     // Ensure booking is tied to authenticated customer
     const customerId = req.user?.id || req.body.customerId;
@@ -789,13 +793,19 @@ const aiVoiceBooking = async (req, res) => {
     let extractedData = null;
     const today = new Date().toISOString().split('T')[0];
 
-    if (process.env.GROQ_API_KEY) {
+    // Check AI Slot availability (Rate limits, Daily Quotas, Concurrency & Kill Switch)
+    const slot = tryAcquireAiSlot(customerId);
+
+    if (slot.allowed && process.env.GROQ_API_KEY) {
+      const startTime = Date.now();
+      let outcome = 'error';
+      const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
+
       try {
         const Groq = require('groq-sdk');
         const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-        const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
         
-        const prompt = `You are a logistics booking assistant. Extract the booking details from this user request: "${transcript}".
+        const prompt = `You are a logistics booking assistant. Extract the booking details from this user request: "${safeTranscript}".
 Return exactly a raw JSON object (and nothing else) with these keys: 
 - pickupAddress (string)
 - dropAddress (string)
@@ -806,17 +816,26 @@ Return exactly a raw JSON object (and nothing else) with these keys:
 - weight (number, default to 100 if unknown)
 `;
 
-        const chatCompletion = await groq.chat.completions.create({
-          messages: [{ role: 'user', content: prompt }],
-          model: groqModel,
-          temperature: 0,
-          response_format: { type: 'json_object' }
-        });
+        const chatCompletion = await executeWithBoundedTimeout(async () => {
+          return await groq.chat.completions.create({
+            messages: [{ role: 'user', content: prompt }],
+            model: groqModel,
+            temperature: 0,
+            max_tokens: 300,
+            response_format: { type: 'json_object' }
+          });
+        }, { timeoutMs: 8000, model: groqModel });
 
         extractedData = JSON.parse(chatCompletion.choices[0].message.content);
+        outcome = 'success';
       } catch (groqErr) {
+        outcome = groqErr.code === 'AI_TIMEOUT' ? 'timeout' : 'error';
         console.warn('Groq AI extraction failed, using resilient NLP fallback:', groqErr.message);
+      } finally {
+        slot.release({ outcome, durationMs: Date.now() - startTime, model: groqModel });
       }
+    } else if (!slot.allowed) {
+      console.log(`[AI Booking] AI slot unavailable (${slot.reason}), gracefully falling back to deterministic NLP engine.`);
     }
 
     if (!extractedData) {

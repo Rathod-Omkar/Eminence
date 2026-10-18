@@ -1,4 +1,5 @@
 const { Booking, Driver, Vehicle } = require('../models');
+const { tryAcquireAiSlot, executeWithBoundedTimeout } = require('./aiUsageManager');
 let Groq;
 let groqClient = null;
 
@@ -29,6 +30,42 @@ function isOffTopicQuery(text) {
   return false;
 }
 
+/**
+ * Fast-path FAQ cache for high-frequency queries.
+ * Returns instant deterministic answers without consuming external LLM tokens or API quotas.
+ */
+function checkFaqCache(queryText) {
+  if (!queryText || typeof queryText !== 'string') return null;
+  const q = queryText.toLowerCase().trim();
+
+  // 1. Pricing & Fare rates
+  if (/\b(rate|rates|fare|fares|price|prices|pricing|cost|how much)\b/i.test(q) && !/where is|track/i.test(q)) {
+    return "EMINENCE Standard Tempo Rates (Pune & Maharashtra):\n" +
+      "• Small Tempo (Tata Ace / Chhota Hathi): Base ₹350 (payload up to 500kg)\n" +
+      "• Medium Tempo (Bolero Maxi Truck): Base ₹550 (payload up to 1200kg)\n" +
+      "• Large Tempo (14ft Eicher): Base ₹1200 (payload up to 2500kg)\n\n" +
+      "Standard pricing includes 60 mins loading/unloading window. To book a tempo, please visit the Bookings tab or call +1234567890. 🚚";
+  }
+
+  // 2. Helpline and Contact numbers
+  if (/\b(helpline|customer care|phone number|contact number|support email|call support|emergency)\b/i.test(q)) {
+    return "EMINENCE 24/7 Customer Support:\n" +
+      "• Helpline Phone: +91 91723 93084 (Toll-free IVR available 24/7)\n" +
+      "• Support Email: support@eminence.com\n" +
+      "• Driver Emergency SOS: Available in the mobile app driver dashboard.";
+  }
+
+  // 3. Cancellation Policy
+  if (/\b(cancel|cancellation|refund)\b/i.test(q) && !/where is|track/i.test(q)) {
+    return "EMINENCE Cancellation & Refund Policy:\n" +
+      "• Free Cancellation: Zero charge if cancelled within 30 minutes of scheduled booking.\n" +
+      "• Instant Wallet Refund: Any advance payments for cancelled trips are immediately credited back to your Eminence Wallet.\n" +
+      "• Once a driver has arrived at the pickup location or the trip is in transit, cancellation must be coordinated via support at +91 91723 93084.";
+  }
+
+  return null;
+}
+
 function getGroqClient() {
   if (groqClient) return groqClient;
   if (process.env.GROQ_API_KEY) {
@@ -46,19 +83,37 @@ function getGroqClient() {
 
 /**
  * Handle incoming support messages from customers using Groq LLM
- * with strict logistics domain guardrails.
+ * with strict logistics domain guardrails, rate limiting, and cost bounds.
  * @param {string} customerId - The UUID of the customer
  * @param {string} text - The query text sent by the customer
  * @returns {Promise<string>} The response text from the bot
  */
 async function handleSupportMessage(customerId, text) {
-  try {
-    // 1. Fast Guardrail Check: Block off-topic queries immediately
-    if (isOffTopicQuery(text)) {
-      return OFF_TOPIC_REFUSAL_MESSAGE;
-    }
+  // 1. Bound and sanitize input length (max 500 characters)
+  const safeText = typeof text === 'string' ? text.trim().slice(0, 500) : '';
 
-    // 2. Fetch recent context for the customer
+  // 2. Fast Guardrail Check: Block off-topic queries immediately
+  if (isOffTopicQuery(safeText)) {
+    return OFF_TOPIC_REFUSAL_MESSAGE;
+  }
+
+  // 3. Fast FAQ Cache Check: Provide instant response without burning LLM quota
+  const faqAnswer = checkFaqCache(safeText);
+  if (faqAnswer) {
+    return faqAnswer;
+  }
+
+  // 4. Rate Limiting, Concurrency & Daily Quota Guardrail
+  const slot = tryAcquireAiSlot(customerId || 'guest_customer');
+  if (!slot.allowed) {
+    return slot.message || "AI support is temporarily at capacity. Please call our 24/7 helpline at +1234567890 for immediate assistance. 🚚";
+  }
+
+  const startTime = Date.now();
+  let outcome = 'error';
+
+  try {
+    // 5. Fetch recent context for the customer
     let bookings = [];
     if (customerId) {
       try {
@@ -69,14 +124,14 @@ async function handleSupportMessage(customerId, text) {
             { model: Vehicle, as: 'vehicle', attributes: ['type'] }
           ],
           order: [['createdAt', 'DESC']],
-          limit: 5
+          limit: 3
         });
       } catch (dbErr) {
         console.warn('Could not fetch customer bookings context:', dbErr.message);
       }
     }
 
-    // 3. Format context for the LLM
+    // 6. Format context for the LLM
     let bookingsContext = "Customer's Recent Bookings Context:\n";
     if (bookings.length === 0) {
       bookingsContext += "The customer has no recent or active bookings recorded.\n";
@@ -93,7 +148,7 @@ async function handleSupportMessage(customerId, text) {
       });
     }
 
-    // 4. Build the Strict Guardrail System Prompt
+    // 7. Build the Strict Guardrail System Prompt
     const systemPrompt = `You are the official Customer Support Assistant for "Eminence", Pune's leading smart transport booking platform for local tempos.
 Your tone should be helpful, professional, friendly, and concise.
 
@@ -121,58 +176,85 @@ If the query is NOT directly about Eminence logistics, shipments, tempos, driver
 ${bookingsContext}
 -------------------------`;
 
-    // 5. Check if Groq client is available
+    // 8. Check if Groq client is configured
     const client = getGroqClient();
     if (!client) {
-      // Fallback for offline/unconfigured environments
+      outcome = 'offline_fallback';
       return "Hello! I am your Eminence Support Assistant. For immediate assistance with bookings, delivery tracking, or driver inquiries, please reach our 24/7 helpline at +1234567890 or email support@eminence.com. 🚚";
     }
 
     const preferredModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
-    let chatCompletion;
-    try {
-      chatCompletion = await client.chat.completions.create({
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: text }
-        ],
-        model: preferredModel,
-        temperature: 0.2,
-        max_tokens: 350,
-      });
-    } catch (err) {
-      // If preferred model is not found, fallback to gpt-oss-120b
-      chatCompletion = await client.chat.completions.create({
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: text }
-        ],
-        model: 'openai/gpt-oss-120b',
-        temperature: 0.2,
-        max_tokens: 350,
-      });
-    }
+
+    // 9. Execute with bounded timeout (8s max)
+    const chatCompletion = await executeWithBoundedTimeout(async () => {
+      try {
+        return await client.chat.completions.create({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: safeText }
+          ],
+          model: preferredModel,
+          temperature: 0.2,
+          max_tokens: 300,
+        });
+      } catch (err) {
+        // If 429 rate limit or quota error, fail fast without duplicate requests
+        const status = err.status || err.statusCode;
+        if (status === 429 || status === 402 || status === 401 || status === 403) {
+          throw err;
+        }
+        // Fallback model for model-not-found / transient errors
+        return await client.chat.completions.create({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: safeText }
+          ],
+          model: 'openai/gpt-oss-120b',
+          temperature: 0.2,
+          max_tokens: 300,
+        });
+      }
+    }, { timeoutMs: 8000, model: preferredModel });
 
     const answer = chatCompletion.choices[0]?.message?.content?.trim();
     if (!answer) {
-      return "I'm sorry, but I couldn't generate a response at this time. Please contact support@eminence.com.";
+      outcome = 'empty_response';
+      return "I'm sorry, but I couldn't generate a response at this time. Please contact support@eminence.com or call +1234567890.";
     }
 
     // Safety guardrail: If the model generated code blocks despite rules, reject it
     if (answer.includes('```') || /def\s+\w+\(|function\s+\w+\(/.test(answer)) {
+      outcome = 'guardrail_rejection';
       return OFF_TOPIC_REFUSAL_MESSAGE;
     }
 
+    outcome = 'success';
     return answer;
 
   } catch (error) {
-    console.error('Groq LLM Support Bot Error:', error);
+    const isRateLimitOrQuota = error.status === 429 || error.status === 402 || (error.message && error.message.includes('rate limit'));
+    if (isRateLimitOrQuota) {
+      outcome = 'provider_rate_limited';
+      return "Our AI Support Assistant is temporarily experiencing high demand. For immediate assistance with bookings or tracking, please call our 24/7 helpline at +1234567890. 🚚";
+    }
+    if (error.code === 'AI_TIMEOUT') {
+      outcome = 'timeout';
+      return "Our AI assistant timed out while generating your response. Please try again or reach out to our 24/7 helpline at +1234567890. 🚚";
+    }
+
+    console.error('Groq LLM Support Bot Error:', error.message || error);
+    outcome = 'error';
     return "I'm currently experiencing some technical difficulties connecting to my AI brain. Please try again later or contact our human support team at support@eminence.com! 🛠️";
+  } finally {
+    const durationMs = Date.now() - startTime;
+    slot.release({ outcome, durationMs, model: process.env.GROQ_MODEL || 'groq' });
   }
 }
 
 module.exports = { 
   handleSupportMessage,
   isOffTopicQuery,
+  checkFaqCache,
   OFF_TOPIC_REFUSAL_MESSAGE
 };
+

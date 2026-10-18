@@ -4,15 +4,15 @@ const adminController = require('../controllers/adminController');
 const adminAuthController = require('../controllers/adminAuthController');
 const authMiddleware = require('../middleware/authMiddleware');
 const authorize = require('../middleware/roleMiddleware');
-const { apiLimiter, authLimiter } = require('../middleware/rateLimiter');
+const { apiLimiter, authLimiter, adminReportsLimiter } = require('../middleware/rateLimiter');
 
 // Public route for admin login
 router.post('/login', authLimiter, adminAuthController.adminLogin);
 
-// Apply rate limiting, auth and admin middleware to all protected routes
-router.use(apiLimiter);
+// Apply auth, admin role verification, and rate limiting to all protected routes
 router.use(authMiddleware);
 router.use(authorize('admin'));
+router.use(apiLimiter);
 
 const { validateDriver, validateCustomer, validateVehicle } = require('../middleware/requestValidator');
 
@@ -36,10 +36,10 @@ router.post('/vehicles', validateVehicle, adminController.createVehicle);
 router.put('/vehicles/:id', validateVehicle, adminController.updateVehicle);
 router.delete('/vehicles/:id', adminController.deleteVehicle);
 
-// Analytics routes
-router.get('/stats/overview', adminController.getOverviewStats);
-router.get('/stats/revenue', adminController.getRevenueAnalytics);
-router.get('/stats/routes', adminController.getRouteAnalytics);
+// Analytics routes (expensive report queries protected with adminReportsLimiter)
+router.get('/stats/overview', adminReportsLimiter, adminController.getOverviewStats);
+router.get('/stats/revenue', adminReportsLimiter, adminController.getRevenueAnalytics);
+router.get('/stats/routes', adminReportsLimiter, adminController.getRouteAnalytics);
 
 // Contracts routes
 router.get('/contracts', adminController.getContracts);

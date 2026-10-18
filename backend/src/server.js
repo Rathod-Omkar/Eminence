@@ -1,4 +1,6 @@
 const http = require('http');
+const validateEnv = require('./config/validateEnv');
+validateEnv();
 const app = require('./app');
 const { syncDatabase } = require('./models');
 const process = require('node:process');
@@ -43,6 +45,17 @@ const { getAllSupportItems } = require('./controllers/supportController');
 
 // Chat message rate limiting tracker per socket (prevents spam and DoS)
 const socketMessageTimestamps = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 30000;
+  for (const [socketId, timestamps] of socketMessageTimestamps.entries()) {
+    const valid = timestamps.filter(t => t > cutoff);
+    if (valid.length === 0) {
+      socketMessageTimestamps.delete(socketId);
+    } else {
+      socketMessageTimestamps.set(socketId, valid);
+    }
+  }
+}, 30000).unref();
 
 const cookie = require('cookie');
 
@@ -265,9 +278,13 @@ io.on('connection', (socket) => {
   // Driver SOS Emergency Alert socket handler
   socket.on('driver_sos', async (sosData) => {
     try {
+      if (!socket.user || (socket.user.role !== 'driver' && socket.user.role !== 'admin')) {
+        return socket.emit('error', { message: 'Unauthorized: Driver account required for driver SOS alert' });
+      }
       const { triggerDriverSos } = require('./controllers/supportController');
+      const reqUser = socket.user.role === 'driver' ? socket.user : { id: sosData?.driverId || socket.user.id, role: 'driver', name: sosData?.driverName };
       const fakeReq = {
-        user: socket.user?.role === 'driver' ? socket.user : { id: sosData?.driverId, role: 'driver', name: sosData?.driverName },
+        user: reqUser,
         body: sosData,
         app
       };

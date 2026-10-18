@@ -20,9 +20,9 @@ const checkAndSetProfileComplete = async (customer) => {
 // Generate 6 digit OTP
 const generateOtp = () => {
   const otp = crypto.randomInt(100000, 1000000).toString();
-  console.log(`\n\n==============================`);
-  console.log(`🚀 TEST OTP GENERATED: ${otp}`);
-  console.log(`==============================\n\n`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[DEV OTP GENERATED]: ${otp}`);
+  }
   return otp;
 };
 

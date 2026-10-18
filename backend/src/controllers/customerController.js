@@ -76,7 +76,14 @@ const verifyProSubscription = async (req, res) => {
 
     const isMock = process.env.RAZORPAY_KEY_ID === 'rzp_test_mock' || !process.env.RAZORPAY_KEY_ID;
 
-    if (!isMock) {
+    if (isMock) {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(400).json({
+          success: false,
+          message: 'Mock payment verification is prohibited in production mode.'
+        });
+      }
+    } else {
       if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         return res.status(400).json({
           success: false,

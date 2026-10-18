@@ -3,14 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Clock, Box, ShieldCheck, Tag, Shield, Crown,
   Mic, MicOff, Sparkles, X, Leaf, Bookmark, MapPin, Wallet,
-  Plus, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Truck, Phone
+  Plus, CheckCircle, AlertTriangle, AlertCircle, RefreshCw, ExternalLink, Truck
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import api from '../services/api';
 import AutocompleteLocationInput from '../components/Customer/Booking/AutocompleteLocationInput';
 import RouteMapPreview from '../components/Customer/Booking/RouteMapPreview';
-import { bookingLocationsSchema, bookingDetailsSchema, bookingPaymentSchema, VEHICLE_CAPACITIES } from '../utils/formSchemas';
+import { bookingLocationsSchema, bookingDetailsSchema, VEHICLE_CAPACITIES } from '../utils/formSchemas';
 import AuthModal from '../components/Auth/AuthModal';
 import { geocodeAddress, fetchOsrmRoute } from '../utils/puneGeocoder';
 

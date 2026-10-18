@@ -16,7 +16,6 @@ import {
   PackageCheck,
   ShieldCheck,
   ArrowRight,
-  Truck,
   Check
 } from 'lucide-react';
 import { geocodeAddress, fetchOsrmRoute } from '../../utils/puneGeocoder';

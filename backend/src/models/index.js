@@ -256,9 +256,10 @@ const initializeFleetAndDrivers = async () => {
       console.log('Seeded 8 dedicated fleet tempos successfully.');
     }
 
+    const isDevOrTest = process.env.NODE_ENV !== 'production';
     const driverCount = await Driver.count();
-    if (driverCount < 4) {
-      console.log('Provisioning primary fleet drivers...');
+    if (isDevOrTest && driverCount < 4) {
+      console.log('Provisioning primary fleet drivers (dev/test)...');
       const bcrypt = require('bcrypt');
       const defaultPassword = await bcrypt.hash('password123', 10);
       const defaultDrivers = [
@@ -286,8 +287,8 @@ const initializeFleetAndDrivers = async () => {
 // Function to sync models
 const syncDatabase = async () => {
   try {
-    if (process.env.NODE_ENV === 'production') {
-      console.log('Production environment detected: Skipping automatic schema alteration. Controlled database migrations should be used.');
+    if (process.env.NODE_ENV === 'production' && process.env.DB_SYNC !== 'true') {
+      console.log('Production environment detected: Skipping automatic schema alteration. Set DB_SYNC=true or run "npm run db:init" during initial deployment if bootstrapping schema.');
       await sequelize.authenticate();
       return;
     }
@@ -300,7 +301,7 @@ const syncDatabase = async () => {
     // Ensure dedicated company fleet & qualified drivers exist
     await initializeFleetAndDrivers();
 
-    // Ensure single authoritative admin exists based on .env
+    // Ensure single authoritative admin exists based on environment configuration
     if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV) {
       const bcrypt = require('bcrypt');
       const seedEmail = process.env.SEED_EMAIL || 'admin@eminence.com';
@@ -327,6 +328,26 @@ const syncDatabase = async () => {
         admin.role = 'Superadmin';
         admin.isPrimary = true;
         await admin.save();
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      const adminCount = await Admin.count();
+      if (adminCount === 0) {
+        const adminEmail = process.env.ADMIN_EMAIL || process.env.SEED_EMAIL;
+        const adminPassword = process.env.ADMIN_PASSWORD || process.env.SEED_PASSWORD;
+        if (adminEmail && adminPassword) {
+          const bcrypt = require('bcrypt');
+          const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);
+          await Admin.create({
+            name: 'Root Administrator',
+            email: adminEmail,
+            password: hashedAdminPassword,
+            role: 'Superadmin',
+            isPrimary: true
+          });
+          console.log(`[BOOTSTRAP] Initialized root administrator account for: ${adminEmail}`);
+        } else {
+          console.warn('[SECURITY NOTICE] No Admin found in database. Configure ADMIN_EMAIL and ADMIN_PASSWORD in environment to provision the root administrator.');
+        }
       }
     }
 

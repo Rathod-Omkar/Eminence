@@ -3,12 +3,12 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const authMiddleware = require('../middleware/authMiddleware');
 const authorize = require('../middleware/roleMiddleware');
-const { apiLimiter } = require('../middleware/rateLimiter');
+const { adminReportsLimiter } = require('../middleware/rateLimiter');
 
-// Apply rate limiting and auth/admin middleware to all routes in this router
-router.use(apiLimiter);
+// Apply auth, admin authorization, and report rate limiting to all routes in this router
 router.use(authMiddleware);
 router.use(authorize('admin'));
+router.use(adminReportsLimiter);
 
 // Aggregation endpoints
 router.get('/overview', adminController.getOverviewStats);

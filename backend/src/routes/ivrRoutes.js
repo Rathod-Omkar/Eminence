@@ -24,25 +24,22 @@ const optionalAuth = (req, _res, next) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-      req.user = decoded;
+      if (process.env.JWT_SECRET) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+      }
     } catch (_) {}
   }
   next();
 };
 
-const voiceQueryLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 60, // limit each IP to 60 requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false
-});
+const { voiceQueryLimiter } = require('../middleware/rateLimiter');
 
 // Health & Status
 router.get('/health', ivrController.getHealth);
 
-// REST Voice Query (Mobile / Web Support Chat mic recording)
-router.post('/voice-query', voiceQueryLimiter, optionalAuth, upload.single('audio'), ivrController.handleVoiceQuery);
+// REST Voice Query (Mobile / Web Support Chat mic recording, optionalAuth runs first to authenticate user for rate limiting)
+router.post('/voice-query', optionalAuth, voiceQueryLimiter, upload.single('audio'), ivrController.handleVoiceQuery);
 
 // Telephony Webhooks (Twilio / Exotel Inbound Call & Recording)
 router.post('/webhook', ivrController.handleIncomingWebhook);

@@ -5,10 +5,27 @@ let io;
 let pool;
 
 const initSocket = (httpServer) => {
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+    : [
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'http://localhost:5173',
+        'http://localhost:8081',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:5000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:8081'
+      ];
+
   io = new Server(httpServer, {
     cors: {
-      // Use explicit array to avoid wildcard CORS issues with credentials
-      origin: ['http://localhost:5173', 'http://localhost:3000'],
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('CORS blocked: Origin not allowed for Socket.io'));
+      },
       methods: ['GET', 'POST'],
       credentials: true
     }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getToken } from './tokenService';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000',
@@ -8,8 +9,13 @@ const api = axios.create({
   xsrfHeaderName: 'X-XSRF-TOKEN',
 });
 
-// Interceptor to ensure x-xsrf-token is sent across local ports (5173 -> 3000)
+// Interceptor to attach Authorization Bearer token & ensure x-xsrf-token is sent
 api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
   if (typeof document !== 'undefined' && document.cookie) {
     const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
     if (match) {
