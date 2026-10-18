@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, ZoomControl } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -62,21 +62,24 @@ const truckIcon = new L.Icon({
   className: 'rounded-full border-2 border-copper-500 shadow-2xl object-cover'
 });
 
-// FitBounds component to auto-frame all points smoothly
+// FitBounds component to auto-frame all points smoothly on initial load
 const FitBounds = ({ positions }) => {
   const map = useMap();
+  const hasFittedRef = useRef(false);
 
   useEffect(() => {
-    if (!positions || positions.length === 0) return;
+    if (!positions || positions.length === 0 || hasFittedRef.current) return;
     try {
       const valid = positions.filter(
         p => p && Array.isArray(p) && p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])
       );
       if (valid.length === 1) {
         map.setView(valid[0], 14, { animate: true });
+        hasFittedRef.current = true;
       } else if (valid.length > 1) {
         const bounds = L.latLngBounds(valid);
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15, animate: true });
+        hasFittedRef.current = true;
       }
     } catch (e) {
       console.warn('Map fit bounds notice:', e);
