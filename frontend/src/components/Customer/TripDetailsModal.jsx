@@ -161,6 +161,8 @@ const TripDetailsModal = ({ trip, isOpen, onClose, onCancelBooking }) => {
         return { text: 'IN TRANSIT', bg: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
       case 'completed':
         return { text: 'DELIVERED', bg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
+      case 'expired':
+        return { text: 'EXPIRED', bg: 'bg-amber-500/20 text-amber-400 border-amber-500/30' };
       case 'cancelled':
         return { text: 'CANCELLED', bg: 'bg-rose-500/15 text-rose-400 border-rose-500/30' };
       default:

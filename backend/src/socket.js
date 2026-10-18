@@ -163,6 +163,28 @@ const initSocket = (httpServer) => {
   io.on('connection', (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
 
+    // Automatically join user personal notifications room
+    if (socket.user?.id) {
+      socket.join(`user_${socket.user.id}`);
+    }
+    // Automatically join admin notifications room
+    if (socket.user?.role === 'admin') {
+      socket.join('admin_notifications');
+      socket.join('admin_inbox');
+    }
+
+    // Explicit join listener for client resilience
+    socket.on('join_notifications', () => {
+      if (socket.user?.id) {
+        socket.join(`user_${socket.user.id}`);
+      }
+      if (socket.user?.role === 'admin') {
+        socket.join('admin_notifications');
+        socket.join('admin_inbox');
+      }
+      socket.emit('joined_notifications');
+    });
+
     // Driver or Customer joins their trip room with authorization checks
     socket.on('join_trip', async (bookingId) => {
       if (!socket.user) {

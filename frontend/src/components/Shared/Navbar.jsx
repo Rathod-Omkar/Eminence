@@ -4,6 +4,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../../redux/slices/authSlice';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import NotificationBell from './NotificationBell';
 
 
 const Navbar = () => {
@@ -92,6 +93,7 @@ const Navbar = () => {
 
             {isAuthenticated ? (
               <div className="flex items-center gap-3">
+                <NotificationBell role={user?.role} />
                 <Link to={`/${user?.role || 'customer'}/dashboard`} className="btn-secondary rounded-xl py-2.5 px-6 whitespace-nowrap">
                   {t('navbar.dashboard')}
                 </Link>
@@ -115,7 +117,8 @@ const Navbar = () => {
             )}
           </div>
 
-          <div className="md:hidden flex items-center gap-4">
+          <div className="md:hidden flex items-center gap-2">
+            {isAuthenticated && <NotificationBell role={user?.role} />}
             <button 
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="p-2 text-loft-300 hover:text-loft-50 focus:outline-none bg-loft-900 rounded-lg transition-colors"

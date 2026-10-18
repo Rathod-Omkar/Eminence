@@ -100,6 +100,13 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id, 'User:', socket.user?.id, 'Role:', socket.user?.role);
+  if (socket.user?.id) {
+    socket.join(`user_${socket.user.id}`);
+  }
+  if (socket.user?.role === 'admin') {
+    socket.join('admin_notifications');
+    socket.join('admin_inbox');
+  }
 
   // Admin joins the global admin inbox channel
   socket.on('join_admin', async () => {
@@ -243,6 +250,17 @@ io.on('connection', (socket) => {
         io.to(`chat_${customerId}`).emit('receive_message', message);
         const allItems = await getAllSupportItems();
         io.to('admin_inbox').emit('chat_list_update', allItems);
+      }
+
+      if (sender === 'customer') {
+        const { createAndEmitNotification } = require('./services/notificationService');
+        createAndEmitNotification({
+          recipientRole: 'admin',
+          title: `Support Chat: ${message.name}`,
+          message: `${cleanText.slice(0, 80)}${cleanText.length > 80 ? '...' : ''}`,
+          type: 'support',
+          metadata: { customerId }
+        }).catch(() => {});
       }
     } catch (err) {
       console.error('Error saving message:', err);

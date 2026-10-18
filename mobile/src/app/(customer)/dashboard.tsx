@@ -610,15 +610,20 @@ export default function CustomerDashboard() {
                       </Text>
                       <View style={[
                         styles.statusBadge,
-                        ride.status === 'cancelled' && { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.4)' },
+                        (ride.status === 'cancelled' || ride.status === 'expired') && {
+                          backgroundColor: ride.status === 'expired' || ride.cancellationReason?.toLowerCase().includes('expire') ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          borderColor: ride.status === 'expired' || ride.cancellationReason?.toLowerCase().includes('expire') ? 'rgba(245, 158, 11, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+                        },
                         ride.status === 'pending' && { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)' },
                       ]}>
                         <Text style={[
                           styles.statusText,
-                          ride.status === 'cancelled' && { color: ride.cancellationReason?.toLowerCase().includes('expire') ? '#f59e0b' : '#ef4444' },
+                          (ride.status === 'cancelled' || ride.status === 'expired') && { color: ride.status === 'expired' || ride.cancellationReason?.toLowerCase().includes('expire') ? '#f59e0b' : '#ef4444' },
                           ride.status === 'pending' && { color: '#60a5fa' },
                         ]}>
-                          {ride.status === 'cancelled'
+                          {ride.status === 'expired'
+                            ? 'EXPIRED'
+                            : ride.status === 'cancelled'
                             ? (ride.cancellationReason?.toLowerCase().includes('expire') ? 'EXPIRED' : 'CANCELLED')
                             : (ride.status?.toUpperCase() || 'CONFIRMED')}
                         </Text>
@@ -636,11 +641,11 @@ export default function CustomerDashboard() {
                       </View>
                     )}
 
-                    {/* Cancellation reason for cancelled bookings */}
-                    {ride.status === 'cancelled' && (
-                      <View style={styles.cancelledNoteRow}>
-                        <Text style={styles.cancelledNoteText}>
-                          {ride.cancellationReason || 'Booking cancelled'} • 100% wallet refunded
+                    {/* Cancellation reason for cancelled / expired bookings */}
+                    {(ride.status === 'cancelled' || ride.status === 'expired') && (
+                      <View style={[styles.cancelledNoteRow, ride.status === 'expired' && { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.2)' }]}>
+                        <Text style={[styles.cancelledNoteText, ride.status === 'expired' && { color: '#f59e0b' }]}>
+                          {ride.cancellationReason || (ride.status === 'expired' ? 'Expired: Untouched without driver past deadline' : 'Booking cancelled')} • 100% wallet refunded
                         </Text>
                       </View>
                     )}

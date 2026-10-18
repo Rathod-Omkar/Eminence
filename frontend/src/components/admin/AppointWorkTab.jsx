@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
   UserCheck, Clock, Truck, CheckCircle2, 
-  Search, RefreshCw, AlertCircle, ArrowRight, ShieldCheck, MapPin
+  Search, RefreshCw, AlertCircle, ArrowRight, ShieldCheck, MapPin, AlertTriangle
 } from 'lucide-react';
 import { adminApi } from '../../services/adminApi';
 
@@ -12,7 +12,7 @@ const AppointWorkTab = () => {
   const [loading, setLoading] = useState(false);
   const [assigningId, setAssigningId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('pending'); // 'pending' | 'active' | 'all'
+  const [statusFilter, setStatusFilter] = useState('pending'); // 'pending' | 'active' | 'completed' | 'expired' | 'all'
   const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', message: string }
 
   const fetchData = async () => {
@@ -122,15 +122,53 @@ const AppointWorkTab = () => {
     return drivers.filter(d => d.status !== 'inactive');
   }, [drivers]);
 
-  // Statistics calculation
+  // Helpers to unambiguously classify bookings across all states
+  const isBookingExpired = (b) => {
+    if (!b) return false;
+    if (b.status === 'expired') return true;
+    if (b.status === 'cancelled' && (
+      b.cancellationReason?.toLowerCase().includes('expire') ||
+      b.cancellationReason?.toLowerCase().includes('untouched')
+    )) {
+      return true;
+    }
+    // Untouched pending booking past expiry deadline without driver
+    if (b.status === 'pending' && !b.driverId) {
+      if (b.expiresAt && new Date() >= new Date(b.expiresAt)) return true;
+      if (!b.expiresAt && b.createdAt && (Date.now() - new Date(b.createdAt).getTime() >= 24 * 60 * 60 * 1000)) return true;
+    }
+    return false;
+  };
+
+  const isBookingPending = (b) => {
+    if (!b) return false;
+    if (isBookingExpired(b)) return false;
+    if (b.status === 'cancelled' || b.status === 'completed') return false;
+    return b.status === 'pending' || !b.driverId;
+  };
+
+  const isBookingActive = (b) => {
+    if (!b) return false;
+    if (isBookingExpired(b) || b.status === 'cancelled' || b.status === 'completed') return false;
+    return ['driver_assigned', 'arrived', 'in_transit'].includes(b.status);
+  };
+
+  const isBookingCompleted = (b) => {
+    if (!b) return false;
+    return b.status === 'completed';
+  };
+
+  // Statistics calculation for all tabs and KPI cards
   const stats = useMemo(() => {
-    const pending = bookings.filter(b => b.status === 'pending' || !b.driverId).length;
-    const inProgress = bookings.filter(b => b.status === 'driver_assigned' || b.status === 'in_transit').length;
-    const completed = bookings.filter(b => b.status === 'completed').length;
+    const pending = bookings.filter(b => isBookingPending(b)).length;
+    const inProgress = bookings.filter(b => isBookingActive(b)).length;
+    const completed = bookings.filter(b => isBookingCompleted(b)).length;
+    const expired = bookings.filter(b => isBookingExpired(b)).length;
     return {
       pending,
       inProgress,
       completed,
+      expired,
       availableDrivers: assignableDrivers.length,
       totalDrivers: drivers.length
     };
@@ -141,11 +179,13 @@ const AppointWorkTab = () => {
     return bookings.filter(b => {
       // Status filter
       if (statusFilter === 'pending') {
-        const isPending = b.status === 'pending' || !b.driverId;
-        if (!isPending) return false;
+        if (!isBookingPending(b)) return false;
       } else if (statusFilter === 'active') {
-        const isActive = b.status === 'driver_assigned' || b.status === 'in_transit';
-        if (!isActive) return false;
+        if (!isBookingActive(b)) return false;
+      } else if (statusFilter === 'completed') {
+        if (!isBookingCompleted(b)) return false;
+      } else if (statusFilter === 'expired') {
+        if (!isBookingExpired(b)) return false;
       }
 
       // Search query filter
@@ -157,8 +197,9 @@ const AppointWorkTab = () => {
         const matchesGoods = b.goodsType?.toLowerCase().includes(q);
         const matchesCustomer = b.customer?.name?.toLowerCase().includes(q) || b.customer?.phone?.includes(q);
         const matchesDriver = b.driver?.name?.toLowerCase().includes(q) || b.driver?.phone?.includes(q);
+        const matchesReason = b.cancellationReason?.toLowerCase().includes(q);
 
-        return matchesId || matchesPickup || matchesDrop || matchesGoods || matchesCustomer || matchesDriver;
+        return matchesId || matchesPickup || matchesDrop || matchesGoods || matchesCustomer || matchesDriver || matchesReason;
       }
 
       return true;
@@ -215,7 +256,7 @@ const AppointWorkTab = () => {
       )}
 
       {/* KPI Stats Overview */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="card bg-loft-900 border-loft-800 p-4 rounded-2xl flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-copper-500/10 border border-copper-500/20 flex items-center justify-center text-copper-500">
             <Clock className="w-6 h-6" />
@@ -255,6 +296,16 @@ const AppointWorkTab = () => {
           <div>
             <p className="text-xs text-loft-400 uppercase tracking-wider font-semibold">Completed Trips</p>
             <p className="text-2xl font-bold text-loft-50">{stats.completed}</p>
+          </div>
+        </div>
+
+        <div className="card bg-loft-900 border-loft-800 p-4 rounded-2xl flex items-center gap-4 col-span-2 md:col-span-1">
+          <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs text-loft-400 uppercase tracking-wider font-semibold">Expired Trips</p>
+            <p className="text-2xl font-bold text-loft-50">{stats.expired}</p>
           </div>
         </div>
       </div>
@@ -341,8 +392,8 @@ const AppointWorkTab = () => {
             onClick={() => setStatusFilter('pending')}
             className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-2 ${
               statusFilter === 'pending'
-                ? 'bg-copper-500 text-white'
-                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100'
+                ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20'
+                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100 hover:bg-loft-800'
             }`}
           >
             Pending Dispatch
@@ -359,8 +410,8 @@ const AppointWorkTab = () => {
             onClick={() => setStatusFilter('active')}
             className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-2 ${
               statusFilter === 'active'
-                ? 'bg-copper-500 text-white'
-                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100'
+                ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20'
+                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100 hover:bg-loft-800'
             }`}
           >
             Assigned / In Transit
@@ -374,11 +425,47 @@ const AppointWorkTab = () => {
           </button>
 
           <button
+            onClick={() => setStatusFilter('completed')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-2 ${
+              statusFilter === 'completed'
+                ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20'
+                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100 hover:bg-loft-800'
+            }`}
+          >
+            Completed
+            {stats.completed > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                statusFilter === 'completed' ? 'bg-white/20 text-white' : 'bg-moss-500/20 text-moss-400'
+              }`}>
+                {stats.completed}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('expired')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-2 ${
+              statusFilter === 'expired'
+                ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20'
+                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100 hover:bg-loft-800'
+            }`}
+          >
+            Expired
+            {stats.expired > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                statusFilter === 'expired' ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-400'
+              }`}>
+                {stats.expired}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => setStatusFilter('all')}
             className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${
               statusFilter === 'all'
-                ? 'bg-copper-500 text-white'
-                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100'
+                ? 'bg-copper-500 text-white shadow-lg shadow-copper-500/20'
+                : 'bg-loft-800/60 text-loft-400 hover:text-loft-100 hover:bg-loft-800'
             }`}
           >
             All Bookings ({bookings.length})
@@ -411,11 +498,19 @@ const AppointWorkTab = () => {
             <p className="text-base font-semibold text-loft-200">
               {statusFilter === 'pending'
                 ? 'All customer bookings are currently appointed!'
+                : statusFilter === 'active'
+                ? 'No active shipments currently in transit.'
+                : statusFilter === 'completed'
+                ? 'No completed deliveries found.'
+                : statusFilter === 'expired'
+                ? 'No expired bookings found.'
                 : 'No bookings found matching the current criteria.'}
             </p>
             <p className="text-xs text-loft-500 max-w-sm">
               {statusFilter === 'pending'
                 ? 'New customer trip requests will appear here automatically ready for driver dispatch.'
+                : statusFilter === 'expired'
+                ? 'Orders untouched past their validity window will appear here.'
                 : 'Try adjusting your search query or switching filters.'}
             </p>
           </div>
@@ -435,7 +530,11 @@ const AppointWorkTab = () => {
               </thead>
               <tbody className="divide-y divide-loft-800">
                 {filteredBookings.map((b) => {
-                  const isPending = b.status === 'pending' || !b.driverId;
+                  const isExpired = isBookingExpired(b);
+                  const isPending = isBookingPending(b);
+                  const isActive = isBookingActive(b);
+                  const isCompleted = isBookingCompleted(b);
+                  const isCancelled = b.status === 'cancelled' && !isExpired;
                   const currentDriver = b.driver || drivers.find(d => String(d.id) === String(b.driverId));
 
                   return (
@@ -498,22 +597,64 @@ const AppointWorkTab = () => {
                       {/* Status & Queue Position */}
                       <td className="px-6 py-4 align-top">
                         <div className="space-y-1">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize inline-block ${
-                            b.status === 'pending' || !b.driverId ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                            b.status === 'driver_assigned' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                            b.status === 'in_transit' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                            b.status === 'completed' ? 'bg-moss-500/10 text-moss-400 border border-moss-500/20' :
-                            'bg-loft-800 text-loft-400'
-                          }`}>
-                            {b.status ? b.status.replace('_', ' ') : 'Pending'}
-                          </span>
-                          {b.driverId && b.status !== 'completed' && b.status !== 'cancelled' && (
-                            <span className={`block text-[11px] font-mono px-2 py-0.5 rounded w-fit ${
-                              b.queuePosition === 1 || b.status === 'in_transit'
-                                ? 'bg-moss-500/15 text-moss-400 border border-moss-500/30'
-                                : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                            }`}>
-                              {b.queuePosition === 1 ? '🎯 Active Delivery' : `⏳ Queue #${b.queuePosition} (Up Next)`}
+                          {isExpired ? (
+                            <div>
+                              <span className="px-2.5 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Expired</span>
+                              </span>
+                              <span className="block text-[10px] text-amber-400/80 font-medium mt-1">
+                                Untouched past deadline
+                              </span>
+                            </div>
+                          ) : isPending ? (
+                            <div>
+                              <span className="px-2.5 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-copper-500/15 text-copper-400 border border-copper-500/30">
+                                <Clock className="w-3.5 h-3.5 text-copper-400 animate-pulse" />
+                                <span>Pending</span>
+                              </span>
+                              {b.expiresAt && (
+                                <span className="block text-[10px] text-loft-400 font-mono mt-1">
+                                  Expires: {new Date(b.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+                          ) : isActive ? (
+                            <div>
+                              <span className="px-2.5 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                <Truck className="w-3.5 h-3.5 text-blue-400" />
+                                <span>{b.status === 'driver_assigned' ? 'Driver Assigned' : b.status === 'arrived' ? 'At Pickup' : 'In Transit'}</span>
+                              </span>
+                              {b.driverId && (
+                                <span className={`block text-[11px] font-mono px-2 py-0.5 rounded w-fit mt-1 ${
+                                  b.queuePosition === 1 || b.status === 'in_transit'
+                                    ? 'bg-moss-500/15 text-moss-400 border border-moss-500/30'
+                                    : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                }`}>
+                                  {b.queuePosition === 1 || b.status === 'in_transit' ? '🎯 Active Delivery' : `⏳ Queue #${b.queuePosition} (Up Next)`}
+                                </span>
+                              )}
+                            </div>
+                          ) : isCompleted ? (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-moss-500/15 text-moss-400 border border-moss-500/30">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-moss-400" />
+                              <span>Completed</span>
+                            </span>
+                          ) : isCancelled ? (
+                            <div>
+                              <span className="px-2.5 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-red-500/15 text-red-400 border border-red-500/30">
+                                <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                                <span>Cancelled</span>
+                              </span>
+                              {b.cancellationReason && (
+                                <span className="block text-[10px] text-loft-400 mt-1 max-w-[160px] truncate" title={b.cancellationReason}>
+                                  {b.cancellationReason}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-loft-800 text-loft-400">
+                              {b.status}
                             </span>
                           )}
                         </div>
@@ -521,40 +662,17 @@ const AppointWorkTab = () => {
 
                       {/* Driver Appointment Selection */}
                       <td className="px-6 py-4 align-top text-right">
-                        <div className="flex flex-col items-end gap-1.5">
-                          {currentDriver && !isPending && (
-                            <div className="text-xs text-loft-300 flex items-center gap-1.5 font-medium mb-1">
-                              <span className="w-2 h-2 rounded-full bg-moss-500 inline-block"></span>
-                              <span>{currentDriver.name}</span>
-                              <span className="text-loft-500 text-[11px]">({currentDriver.phone})</span>
-                            </div>
-                          )}
-
-                          <div className="flex items-center gap-2">
-                            {!isPending && b.status !== 'completed' && b.status !== 'cancelled' && (
-                              <button
-                                type="button"
-                                onClick={() => handleCompleteBooking(b.id)}
-                                disabled={assigningId === b.id}
-                                title="Mark this delivery as completed and advance queue"
-                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-moss-500/15 hover:bg-moss-500/25 text-moss-400 border border-moss-500/30 flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Complete</span>
-                              </button>
-                            )}
-
+                        {isPending ? (
+                          <div className="flex flex-col items-end gap-1.5">
                             <select
                               defaultValue=""
-                              value={isPending ? '' : (currentDriver?.id || '')}
+                              value=""
                               onChange={(e) => handleAppointBooking(b.id, e.target.value)}
                               disabled={assigningId === b.id}
-                              className={`input-field py-1.5 px-3 text-xs bg-loft-950 border-loft-800 max-w-[210px] w-full cursor-pointer ${
-                                isPending ? 'border-copper-500/50 text-loft-100 font-medium' : 'text-loft-300'
-                              }`}
+                              className="input-field py-1.5 px-3 text-xs bg-loft-950 border-copper-500/50 text-loft-100 font-medium max-w-[210px] w-full cursor-pointer hover:border-copper-400 transition-colors"
                             >
                               <option value="" disabled>
-                                {isPending ? 'Appoint Driver / Add to Queue' : 'Reassign Driver / Move Queue'}
+                                Appoint Driver / Add to Queue
                               </option>
                               {assignableDrivers.map((drv) => {
                                 const qCount = driverQueueMap[drv.id]?.length || 0;
@@ -565,14 +683,80 @@ const AppointWorkTab = () => {
                                 );
                               })}
                             </select>
+                            {assignableDrivers.length === 0 && (
+                              <p className="text-[10px] text-amber-400 mt-1">
+                                No active drivers available
+                              </p>
+                            )}
                           </div>
+                        ) : isActive ? (
+                          <div className="flex flex-col items-end gap-1.5">
+                            {currentDriver && (
+                              <div className="text-xs text-loft-300 flex items-center gap-1.5 font-medium mb-1">
+                                <span className="w-2 h-2 rounded-full bg-moss-500 inline-block"></span>
+                                <span>{currentDriver.name}</span>
+                                <span className="text-loft-500 text-[11px]">({currentDriver.phone})</span>
+                              </div>
+                            )}
 
-                          {assignableDrivers.length === 0 && (
-                            <p className="text-[10px] text-amber-400 mt-1">
-                              No active drivers available
-                            </p>
-                          )}
-                        </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleCompleteBooking(b.id)}
+                                disabled={assigningId === b.id}
+                                title="Mark this delivery as completed and advance queue"
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-moss-500/15 hover:bg-moss-500/25 text-moss-400 border border-moss-500/30 flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Complete</span>
+                              </button>
+
+                              <select
+                                value={currentDriver?.id || ''}
+                                onChange={(e) => handleAppointBooking(b.id, e.target.value)}
+                                disabled={assigningId === b.id}
+                                className="input-field py-1.5 px-3 text-xs bg-loft-950 border-loft-800 max-w-[210px] w-full cursor-pointer text-loft-300"
+                              >
+                                <option value="" disabled>
+                                  Reassign Driver / Move Queue
+                                </option>
+                                {assignableDrivers.map((drv) => {
+                                  const qCount = driverQueueMap[drv.id]?.length || 0;
+                                  return (
+                                    <option key={drv.id} value={drv.id}>
+                                      {drv.name} ({qCount === 0 ? '🟢 Available' : `🟡 ${qCount} in queue`})
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                          </div>
+                        ) : isCompleted ? (
+                          <div className="flex items-center justify-end gap-1.5 text-xs text-moss-400 font-semibold bg-moss-500/10 px-3 py-1.5 rounded-lg border border-moss-500/20 w-fit ml-auto">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-moss-400" />
+                            <span>Delivered & Closed</span>
+                          </div>
+                        ) : isExpired ? (
+                          <div className="flex flex-col items-end">
+                            <span className="text-xs font-semibold text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/20 inline-flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Expired (No Driver)</span>
+                            </span>
+                            <span className="text-[10px] text-loft-400 mt-1 font-mono">
+                              ✓ Auto-refunded to Wallet
+                            </span>
+                          </div>
+                        ) : isCancelled ? (
+                          <div className="flex flex-col items-end">
+                            <span className="text-xs font-semibold text-red-400 bg-red-500/10 px-2.5 py-1.5 rounded-lg border border-red-500/20 inline-flex items-center gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                              <span>Trip Cancelled</span>
+                            </span>
+                            <span className="text-[10px] text-loft-500 mt-1">
+                              {b.cancelledBy ? `By ${b.cancelledBy}` : 'Closed'}
+                            </span>
+                          </div>
+                        ) : null}
                       </td>
                     </tr>
                   );

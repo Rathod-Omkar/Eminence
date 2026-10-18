@@ -368,6 +368,7 @@ const Tracking = () => {
       case 'arrived': return 'Driver has arrived at pickup location.';
       case 'in_transit': return 'Goods in transit to destination.';
       case 'completed': return 'Delivery completed successfully!';
+      case 'expired': return 'Booking Expired: Untouched past validity deadline.';
       case 'cancelled':
         return booking?.cancellationReason?.toLowerCase().includes('expire')
           ? 'Booking Expired: Untouched past validity deadline.'
@@ -384,6 +385,7 @@ const Tracking = () => {
       case 'arrived': return { text: 'AT PICKUP', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/30' };
       case 'in_transit': return { text: 'IN TRANSIT', bg: 'bg-copper-500/20 text-copper-300 border-copper-500/30' };
       case 'completed': return { text: 'COMPLETED', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+      case 'expired': return { text: 'EXPIRED', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
       case 'cancelled':
         return booking?.cancellationReason?.toLowerCase().includes('expire')
           ? { text: 'EXPIRED', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/30' }
@@ -534,14 +536,14 @@ const Tracking = () => {
           </div>
         )}
 
-        {status === 'cancelled' && (
-          <div className="p-3.5 rounded-xl border border-red-500/40 bg-red-500/10 shadow-md">
-            <div className="flex items-center gap-2 text-red-400 font-bold text-xs mb-1">
-              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
-              <span>{booking?.cancellationReason?.toLowerCase().includes('expire') ? 'Booking Expired' : 'Booking Cancelled'}</span>
+        {(status === 'cancelled' || status === 'expired') && (
+          <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 shadow-md">
+            <div className="flex items-center gap-2 text-amber-400 font-bold text-xs mb-1">
+              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span>{status === 'expired' || booking?.cancellationReason?.toLowerCase().includes('expire') ? 'Booking Expired' : 'Booking Cancelled'}</span>
             </div>
             <p className="text-xs text-loft-200 mb-2">
-              {booking?.cancellationReason || 'This booking has been cancelled.'}
+              {booking?.cancellationReason || (status === 'expired' ? 'Untouched without driver assignment past validity deadline.' : 'This booking has been cancelled.')}
             </p>
             <div className="text-[11px] text-emerald-400 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 font-medium">
               ✓ Any advance payment has been refunded 100% to your wallet.

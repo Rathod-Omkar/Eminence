@@ -4,6 +4,8 @@ const { geocodeAddress } = require('../services/geocoder');
 const { findPoolMatch } = require('../services/poolingEngine');
 const crypto = require('crypto');
 const { tryAcquireAiSlot, executeWithBoundedTimeout } = require('../services/aiUsageManager');
+const { expireUntouchedBookings } = require('../services/bookingExpiryService');
+const { createAndEmitNotification } = require('../services/notificationService');
 
 // Helper to increment customer totalTrips and award ₹500 milestone wallet cash upon 10 rides
 const handleMilestoneReward = async (customerId, bookingId) => {
@@ -35,6 +37,9 @@ const handleMilestoneReward = async (customerId, bookingId) => {
 // Get all bookings (role-aware: customers only see their own bookings)
 const getAllBookings = async (req, res) => {
   try {
+    // Proactively expire any untouched pending bookings whose validity deadline has passed
+    await expireUntouchedBookings().catch(() => {});
+
     const page = parseInt(req.query.page, 10) || 1;
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const offset = (page - 1) * limit;
@@ -351,6 +356,26 @@ const createBooking = async (req, res) => {
       }).catch(err => console.warn('Wallet debit transaction logging note:', err.message));
     }
 
+    // Send customer and admin real-time notifications
+    if (booking.customerId) {
+      createAndEmitNotification({
+        userId: booking.customerId,
+        recipientRole: 'customer',
+        title: 'Booking Confirmed',
+        message: `Your booking #${booking.id.slice(0, 8)} is placed! We are matching a nearby tempo driver.`,
+        type: 'order_created',
+        metadata: { bookingId: booking.id, pickup: booking.pickupAddress, drop: booking.dropAddress }
+      }).catch(() => {});
+    }
+
+    createAndEmitNotification({
+      recipientRole: 'admin',
+      title: `New Booking #${booking.id.slice(0, 8)}`,
+      message: `New trip requested: ${booking.pickupAddress || 'Pickup'} → ${booking.dropAddress || 'Drop'} (₹${booking.estimatedFare})`,
+      type: 'order_created',
+      metadata: { bookingId: booking.id, fare: booking.estimatedFare }
+    }).catch(() => {});
+
     res.status(201).json({ success: true, booking, pooled: !!bookingData.poolMatchId });
   } catch (error) {
     console.error('Error creating booking:', error);
@@ -423,6 +448,26 @@ const completeBooking = async (req, res) => {
       });
     } catch (socketErr) {}
 
+    // Send notifications to customer and admin
+    if (booking.customerId) {
+      createAndEmitNotification({
+        userId: booking.customerId,
+        recipientRole: 'customer',
+        title: 'Delivery Completed! 🎉',
+        message: `Your booking #${booking.id.slice(0, 8)} has been delivered. Proof of delivery generated.`,
+        type: 'completed',
+        metadata: { bookingId: booking.id, podHash: booking.podHash }
+      }).catch(() => {});
+    }
+
+    createAndEmitNotification({
+      recipientRole: 'admin',
+      title: `Booking Completed #${booking.id.slice(0, 8)}`,
+      message: `Booking #${booking.id.slice(0, 8)} completed with PoD Hash: ${booking.podHash?.slice(0, 10)}...`,
+      type: 'completed',
+      metadata: { bookingId: booking.id, podHash: booking.podHash }
+    }).catch(() => {});
+
     // Advance driver's delivery queue upon completing current trip
     if (booking.driverId) {
       const remainingTrips = await Booking.findAll({
@@ -475,6 +520,14 @@ const updateBookingStatus = async (req, res) => {
 
     if (!isAdmin && !isAssignedDriver && !isDriverClaiming && !isCustomerCancelling) {
       return res.status(403).json({ success: false, message: 'Not authorized to update this booking' });
+    }
+
+    if (booking.status === 'expired') {
+      return res.status(400).json({ success: false, message: 'This booking has expired and can no longer be appointed or modified.' });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ success: false, message: 'This booking has been cancelled and cannot be appointed or modified.' });
     }
 
     if (status) {
@@ -636,6 +689,109 @@ const updateBookingStatus = async (req, res) => {
       }
     }
 
+    // Send contextual notifications to customer and admin based on the status change
+    try {
+      let driverName = 'A driver';
+      if (booking.driverId) {
+        const assignedDriver = await Driver.findByPk(booking.driverId).catch(() => null);
+        if (assignedDriver?.name) driverName = assignedDriver.name;
+      }
+
+      if (status === 'driver_assigned' || (driverId && booking.status === 'driver_assigned')) {
+        if (booking.customerId) {
+          createAndEmitNotification({
+            userId: booking.customerId,
+            recipientRole: 'customer',
+            title: 'Driver Assigned!',
+            message: `${driverName} has accepted your booking #${booking.id.slice(0, 8)} and is on the way to pickup.`,
+            type: 'driver_assigned',
+            metadata: { bookingId: booking.id, driverId: booking.driverId }
+          }).catch(() => {});
+        }
+        createAndEmitNotification({
+          recipientRole: 'admin',
+          title: `Driver Assigned #${booking.id.slice(0, 8)}`,
+          message: `${driverName} assigned to booking #${booking.id.slice(0, 8)}.`,
+          type: 'driver_assigned',
+          metadata: { bookingId: booking.id, driverId: booking.driverId }
+        }).catch(() => {});
+      } else if (status === 'arrived') {
+        if (booking.customerId) {
+          createAndEmitNotification({
+            userId: booking.customerId,
+            recipientRole: 'customer',
+            title: 'Driver Arrived! 📍',
+            message: `Your driver has arrived at the pickup location. Share OTP ${booking.otp || ''} to start ride.`,
+            type: 'arrived',
+            metadata: { bookingId: booking.id }
+          }).catch(() => {});
+        }
+        createAndEmitNotification({
+          recipientRole: 'admin',
+          title: `Driver Arrived #${booking.id.slice(0, 8)}`,
+          message: `Driver has reached pickup for booking #${booking.id.slice(0, 8)}.`,
+          type: 'arrived',
+          metadata: { bookingId: booking.id }
+        }).catch(() => {});
+      } else if (status === 'in_transit') {
+        if (booking.customerId) {
+          createAndEmitNotification({
+            userId: booking.customerId,
+            recipientRole: 'customer',
+            title: 'Trip Started! 🚚',
+            message: `Your delivery #${booking.id.slice(0, 8)} is in transit towards destination.`,
+            type: 'in_transit',
+            metadata: { bookingId: booking.id }
+          }).catch(() => {});
+        }
+        createAndEmitNotification({
+          recipientRole: 'admin',
+          title: `Trip In Transit #${booking.id.slice(0, 8)}`,
+          message: `Booking #${booking.id.slice(0, 8)} is now in transit.`,
+          type: 'in_transit',
+          metadata: { bookingId: booking.id }
+        }).catch(() => {});
+      } else if (status === 'completed') {
+        if (booking.customerId) {
+          createAndEmitNotification({
+            userId: booking.customerId,
+            recipientRole: 'customer',
+            title: 'Delivery Completed! 🎉',
+            message: `Your booking #${booking.id.slice(0, 8)} has been delivered successfully.`,
+            type: 'completed',
+            metadata: { bookingId: booking.id }
+          }).catch(() => {});
+        }
+        createAndEmitNotification({
+          recipientRole: 'admin',
+          title: `Booking Completed #${booking.id.slice(0, 8)}`,
+          message: `Booking #${booking.id.slice(0, 8)} completed successfully.`,
+          type: 'completed',
+          metadata: { bookingId: booking.id }
+        }).catch(() => {});
+      } else if (status === 'cancelled') {
+        if (booking.customerId) {
+          createAndEmitNotification({
+            userId: booking.customerId,
+            recipientRole: 'customer',
+            title: 'Booking Cancelled',
+            message: `Booking #${booking.id.slice(0, 8)} was cancelled: ${booking.cancellationReason || 'Cancelled'}.`,
+            type: 'cancelled',
+            metadata: { bookingId: booking.id }
+          }).catch(() => {});
+        }
+        createAndEmitNotification({
+          recipientRole: 'admin',
+          title: `Booking Cancelled #${booking.id.slice(0, 8)}`,
+          message: `Booking #${booking.id.slice(0, 8)} was cancelled by ${booking.cancelledBy || 'user'}: ${booking.cancellationReason || 'No reason'}.`,
+          type: 'cancelled',
+          metadata: { bookingId: booking.id }
+        }).catch(() => {});
+      }
+    } catch (notifErr) {
+      console.warn('Could not emit status notifications:', notifErr.message);
+    }
+
     res.status(200).json({ success: true, booking });
   } catch (error) {
     console.error('Error updating booking status:', error);
@@ -664,6 +820,13 @@ const cancelBooking = async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: 'Cannot cancel booking once it is in transit or completed' 
+      });
+    }
+
+    if (booking.status === 'expired') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Booking has already expired' 
       });
     }
 
@@ -744,6 +907,26 @@ const cancelBooking = async (req, res) => {
       });
     } catch (socketErr) {}
 
+    // Send notifications to customer and admin
+    if (booking.customerId) {
+      createAndEmitNotification({
+        userId: booking.customerId,
+        recipientRole: 'customer',
+        title: 'Booking Cancelled',
+        message: `Your booking #${booking.id.slice(0, 8)} was cancelled: ${booking.cancellationReason || 'Cancelled'}. Any advance payment was credited to your wallet.`,
+        type: 'cancelled',
+        metadata: { bookingId: booking.id }
+      }).catch(() => {});
+    }
+
+    createAndEmitNotification({
+      recipientRole: 'admin',
+      title: `Booking Cancelled #${booking.id.slice(0, 8)}`,
+      message: `Booking #${booking.id.slice(0, 8)} was cancelled by ${booking.cancelledBy || 'user'}: ${booking.cancellationReason || 'No reason'}.`,
+      type: 'cancelled',
+      metadata: { bookingId: booking.id }
+    }).catch(() => {});
+
     res.status(200).json({
       success: true,
       message: 'Booking cancelled successfully. Any advance payment has been credited to your wallet.',
@@ -774,6 +957,18 @@ const getBookingById = async (req, res) => {
     if (!booking.otp) {
       booking.otp = crypto.randomInt(1000, 10000).toString();
       await booking.save().catch(() => {});
+    }
+
+    // Check if this single untouched pending booking has expired past validity deadline
+    if (booking.status === 'pending' && !booking.driverId) {
+      const now = new Date();
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const isPastExpiresAt = booking.expiresAt && now >= new Date(booking.expiresAt);
+      const isPastDefault = !booking.expiresAt && booking.createdAt && new Date(booking.createdAt) <= twentyFourHoursAgo;
+      if (isPastExpiresAt || isPastDefault) {
+        await expireUntouchedBookings().catch(() => {});
+        await booking.reload().catch(() => {});
+      }
     }
 
     if (req.user) {

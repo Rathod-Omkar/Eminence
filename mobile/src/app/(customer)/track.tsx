@@ -287,6 +287,8 @@ export default function TrackingScreen() {
         return 'Goods in Transit to Destination';
       case 'completed':
         return 'Delivered Successfully!';
+      case 'expired':
+        return 'Booking Expired (Untouched)';
       case 'cancelled':
         return booking?.cancellationReason?.toLowerCase().includes('expire')
           ? 'Booking Expired (Untouched)'
@@ -308,6 +310,7 @@ export default function TrackingScreen() {
         return '85%';
       case 'completed':
         return '100%';
+      case 'expired':
       case 'cancelled':
         return '0%';
       default:
@@ -363,13 +366,13 @@ export default function TrackingScreen() {
         </View>
 
         {/* Cancelled / Expired Banner */}
-        {status === 'cancelled' && (
-          <View style={styles.cancelledCard}>
-            <Text style={styles.cancelledTitle}>
-              {booking?.cancellationReason?.toLowerCase().includes('expire') ? '⚠️ Booking Expired' : '🚫 Booking Cancelled'}
+        {(status === 'cancelled' || status === 'expired') && (
+          <View style={[styles.cancelledCard, status === 'expired' && { borderColor: 'rgba(245, 158, 11, 0.4)', backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+            <Text style={[styles.cancelledTitle, status === 'expired' && { color: '#f59e0b' }]}>
+              {status === 'expired' || booking?.cancellationReason?.toLowerCase().includes('expire') ? '⚠️ Booking Expired' : '🚫 Booking Cancelled'}
             </Text>
             <Text style={styles.cancelledReason}>
-              {booking?.cancellationReason || 'This booking has been cancelled.'}
+              {booking?.cancellationReason || (status === 'expired' ? 'Booking expired because no driver was assigned within the validity window.' : 'This booking has been cancelled.')}
             </Text>
             <View style={styles.refundBox}>
               <Text style={styles.refundText}>

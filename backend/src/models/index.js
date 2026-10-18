@@ -153,6 +153,27 @@ const bootstrapDatabase = async () => {
       await sequelize.query(`
         ALTER TYPE "enum_Bookings_paymentMethod" ADD VALUE IF NOT EXISTS 'wallet';
       `).catch(() => {});
+
+      // Ensure expired booking status value exists in PostgreSQL enum
+      await sequelize.query(`
+        ALTER TYPE "enum_Bookings_status" ADD VALUE IF NOT EXISTS 'expired';
+      `).catch(() => {});
+
+      // Normalize untouched past-validity bookings to 'expired'
+      await sequelize.query(`
+        UPDATE "Bookings"
+        SET status = 'expired'
+        WHERE status = 'cancelled'
+          AND ("cancellationReason" ILIKE '%expire%' OR "cancellationReason" ILIKE '%untouched%');
+      `).catch(() => {});
+
+      await sequelize.query(`
+        ALTER TABLE "Notifications"
+          ALTER COLUMN "userId" DROP NOT NULL,
+          ALTER COLUMN "type" TYPE VARCHAR(50) USING "type"::text,
+          ADD COLUMN IF NOT EXISTS "recipientRole" VARCHAR(50) DEFAULT 'customer',
+          ADD COLUMN IF NOT EXISTS "metadata" JSONB;
+      `).catch(() => {});
     } else if (dialect === 'sqlite') {
       // For SQLite test environment, use a similar partial index
       await sequelize.query(`
@@ -172,6 +193,8 @@ const bootstrapDatabase = async () => {
       await addSqliteColumn('Bookings', 'cancelledBy', 'VARCHAR(50)');
       await addSqliteColumn('Admins', 'role', "VARCHAR(50) DEFAULT 'Support Admin'");
       await addSqliteColumn('Admins', 'isPrimary', 'BOOLEAN DEFAULT 0');
+      await addSqliteColumn('Notifications', 'recipientRole', "VARCHAR(50) DEFAULT 'customer'");
+      await addSqliteColumn('Notifications', 'metadata', 'TEXT');
     }
   } catch (e) {
     console.warn('Bootstrap database note:', e.message);
