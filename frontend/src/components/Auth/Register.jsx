@@ -188,22 +188,29 @@ const Register = () => {
 
           <div>
             <label htmlFor="phone" className="block text-sm font-medium text-loft-200 mb-2">
-              Phone Number (Optional)
+              Mobile Number (+91)
             </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Phone className="h-5 w-5 text-loft-400" />
+            <div className="relative flex">
+              <div className="flex items-center px-3 rounded-l-xl bg-loft-900 border border-r-0 border-loft-700/60 text-loft-300 text-sm font-medium">
+                🇮🇳 +91
               </div>
               <input
                 id="phone"
                 name="phone"
                 type="tel"
-                className="input-field pl-12"
-                placeholder="Enter 10 digit number"
+                maxLength={10}
+                className="input-field rounded-l-none"
+                placeholder="10-digit mobile (e.g. 9876543210)"
                 value={formData.phone}
-                onChange={handleChange}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setFormData({ ...formData, phone: val });
+                }}
               />
             </div>
+            {formData.phone && formData.phone.length > 0 && !/^[6-9]/.test(formData.phone) && (
+              <p className="text-xs text-amber-400 mt-1">Indian mobile numbers must start with 6, 7, 8, or 9</p>
+            )}
           </div>
 
           <div>

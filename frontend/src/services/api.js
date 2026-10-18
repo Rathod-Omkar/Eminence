@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getToken } from './tokenService';
+import { getToken, removeToken } from './tokenService';
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const apiBaseUrl = configuredApiUrl || (import.meta.env.DEV ? 'http://localhost:3000' : '');
@@ -27,5 +27,16 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Response interceptor to clean up expired/invalid tokens
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && typeof error.response?.data?.message === 'string' && error.response.data.message.toLowerCase().includes('token')) {
+      removeToken();
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;

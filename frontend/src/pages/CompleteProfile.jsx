@@ -191,18 +191,24 @@ const CompleteProfile = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Phone</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/[^\d+ -]/g, ''))}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
-              placeholder="e.g. 9876543210"
-              pattern="^[0-9+ -]{10,15}$"
-              title="Enter a valid 10-digit mobile number"
-              maxLength="15"
-              required
-            />
+            <label className="block text-sm font-medium text-gray-700">Indian Mobile Number (+91)</label>
+            <div className="relative flex mt-1">
+              <div className="flex items-center px-3 rounded-l-md bg-gray-100 border border-r-0 border-gray-300 text-gray-600 text-sm font-medium">
+                🇮🇳 +91
+              </div>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className="block w-full rounded-r-md border-gray-300 shadow-sm p-2 border"
+                placeholder="10-digit mobile (e.g. 9876543210)"
+                maxLength="10"
+                required
+              />
+            </div>
+            {phone && phone.length > 0 && !/^[6-9]/.test(phone) && (
+              <p className="text-xs text-amber-600 mt-1">Indian mobile numbers must start with 6, 7, 8, or 9</p>
+            )}
           </div>
 
           <div>

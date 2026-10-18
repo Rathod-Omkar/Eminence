@@ -409,7 +409,8 @@ const sendOtp = async (req, res) => {
     if (type === 'email') {
       await sendEmail(customer.email, "Your Verification Code", `Your code is ${code}`, `<p>Your code is <b>${code}</b></p>`);
     } else if (type === 'phone') {
-      await smsService.sendSMS(customer.phone, `Your EMINENCE verification code is ${code}`);
+      const cleanPhone = smsService.normalizeIndianPhone(customer.phone) || customer.phone;
+      await smsService.sendSMS(cleanPhone, `Your EMINENCE verification code is ${code}`);
     } else {
       return res.status(400).json({ success: false, message: 'Invalid OTP type' });
     }
@@ -490,7 +491,7 @@ const phoneLogin = async (req, res) => {
     if (!phone) return res.status(400).json({ success: false, message: 'Phone number is required' });
 
     const fixtureMode = process.env.NODE_ENV !== 'production' && process.env.TEST_FIXTURES === 'true';
-    const cleanPhone = String(phone).trim().replace(/^(\+91|91)/, '').replace(/\D/g, '');
+    const cleanPhone = smsService.normalizeIndianPhone(phone) || String(phone).trim().replace(/^(\+91|91)/, '').replace(/\D/g, '');
     const fixturePhone = role === 'driver' ? process.env.SEED_DRIVER_PHONE : process.env.SEED_PHONE;
     const isDevDemo = fixtureMode && fixturePhone && process.env.SEED_OTP && cleanPhone === fixturePhone;
     if (isDevDemo) {
@@ -508,22 +509,22 @@ const phoneLogin = async (req, res) => {
     let userId;
     if (role === 'driver') {
       const Driver = require('../models/Driver');
-      let driver = await Driver.findOne({ where: { phone } });
+      let driver = await Driver.findOne({ where: { phone: [cleanPhone, String(phone).trim()] } });
       if (!driver) {
         if (!fixtureMode) {
           return res.status(404).json({ success: false, message: 'Driver account not found' });
         }
-        driver = await Driver.create({ phone, name: 'Test Fixture Driver', licenseNumber: `TEST-${crypto.randomBytes(4).toString('hex').toUpperCase()}` });
+        driver = await Driver.create({ phone: cleanPhone, name: 'Test Fixture Driver', licenseNumber: `TEST-${crypto.randomBytes(4).toString('hex').toUpperCase()}` });
       }
       userId = driver.id;
     } else {
       const isBusiness = role === 'business';
       const { Customer } = require('../models');
-      let customer = await Customer.findOne({ where: { phone, isBusiness } });
+      let customer = await Customer.findOne({ where: { phone: [cleanPhone, String(phone).trim()], isBusiness } });
       if (!customer) {
         const refCode = 'EMINENCE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
         customer = await Customer.create({
-          phone,
+          phone: cleanPhone,
           isPhoneVerified: false,
           referralCode: refCode,
           isBusiness,
@@ -561,8 +562,7 @@ const phoneLogin = async (req, res) => {
       lockoutUntil: null
     });
 
-    const smsService = require('../services/smsService');
-    await smsService.sendSMS(phone, `Your Eminence Login OTP is: ${code}. Valid for 10 minutes.`);
+    await smsService.sendSMS(cleanPhone, `Your Eminence Login OTP is: ${code}. Valid for 10 minutes.`);
 
     return res.status(200).json({ success: true, message: 'OTP sent successfully' });
   } catch (error) {
@@ -574,6 +574,8 @@ const phoneLogin = async (req, res) => {
 const phoneVerify = async (req, res) => {
   try {
     const { phone, code, role = 'customer', acceptedTerms = false } = req.body;
+    const cleanPhone = smsService.normalizeIndianPhone(phone) || String(phone || '').trim().replace(/^(\+91|91)/, '').replace(/\D/g, '');
+    const phoneCandidates = [cleanPhone, String(phone || '').trim()].filter(Boolean);
     
     // Prevent privilege escalation: only allow specific roles
     const validRoles = ['customer', 'business', 'driver'];
@@ -585,7 +587,7 @@ const phoneVerify = async (req, res) => {
     const fixturePhones = userRole === 'driver'
       ? [process.env.SEED_DRIVER_PHONE, process.env.SEED_PHONE].filter(Boolean)
       : [process.env.SEED_PHONE].filter(Boolean);
-    const isDevDemo = fixtureMode && fixturePhones.includes(String(phone)) && process.env.SEED_OTP &&
+    const isDevDemo = fixtureMode && fixturePhones.some(p => phoneCandidates.includes(p)) && process.env.SEED_OTP &&
       String(code) === String(process.env.SEED_OTP);
     
     if (isDevDemo) {
@@ -594,9 +596,9 @@ const phoneVerify = async (req, res) => {
       
       if (userRole === 'driver') {
         const Driver = require('../models/Driver');
-        let driver = await Driver.findOne({ where: { phone } });
+        let driver = await Driver.findOne({ where: { phone: phoneCandidates } });
         if (!driver) {
-          driver = await Driver.create({ phone, name: 'Test Fixture Driver', licenseNumber: `TEST-${crypto.randomBytes(4).toString('hex').toUpperCase()}` });
+          driver = await Driver.create({ phone: cleanPhone, name: 'Test Fixture Driver', licenseNumber: `TEST-${crypto.randomBytes(4).toString('hex').toUpperCase()}` });
         }
         if (acceptedTerms) {
           driver.termsAccepted = true;
@@ -627,13 +629,13 @@ const phoneVerify = async (req, res) => {
       } else {
         const isBusiness = userRole === 'business';
         const { Customer } = require('../models');
-        let customer = await Customer.findOne({ where: { phone, isBusiness: isBusiness ? true : false } });
+        let customer = await Customer.findOne({ where: { phone: phoneCandidates, isBusiness: isBusiness ? true : false } });
         if (!customer) {
-          customer = await Customer.findOne({ where: { phone } });
+          customer = await Customer.findOne({ where: { phone: phoneCandidates } });
         }
         if (!customer) {
           const refCode = 'EMINENCE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-          customer = await Customer.create({ phone, isPhoneVerified: true, referralCode: refCode, isBusiness: isBusiness ? true : false, name: isBusiness ? 'Business' : 'User' });
+          customer = await Customer.create({ phone: cleanPhone, isPhoneVerified: true, referralCode: refCode, isBusiness: isBusiness ? true : false, name: isBusiness ? 'Business' : 'User' });
           const { Wallet } = require('../models');
           await Wallet.create({ customerId: customer.id, balance: 0.0 });
         } else {
@@ -696,11 +698,14 @@ const phoneVerify = async (req, res) => {
     let user;
     if (userRole === 'driver') {
       const Driver = require('../models/Driver');
-      user = await Driver.findOne({ where: { phone } });
+      user = await Driver.findOne({ where: { phone: phoneCandidates } });
     } else {
       const isBusiness = userRole === 'business';
       const { Customer } = require('../models');
-      user = await Customer.findOne({ where: { phone, isBusiness } });
+      user = await Customer.findOne({ where: { phone: phoneCandidates, isBusiness } });
+      if (!user) {
+        user = await Customer.findOne({ where: { phone: phoneCandidates } });
+      }
     }
     
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
@@ -1266,13 +1271,16 @@ const forgotPassword = async (req, res) => {
     }
 
     let user;
+    const cleanPhone = method === 'phone' ? (smsService.normalizeIndianPhone(identifier) || String(identifier).trim().replace(/^(\+91|91)/, '').replace(/\D/g, '')) : null;
+    const phoneCandidates = method === 'phone' ? [cleanPhone, String(identifier).trim()].filter(Boolean) : null;
+
     if (role === 'driver') {
       user = await Driver.findOne({
-        where: method === 'phone' ? { phone: identifier } : { email: identifier }
+        where: method === 'phone' ? { phone: phoneCandidates } : { email: identifier }
       });
     } else {
       user = await Customer.findOne({
-        where: method === 'phone' ? { phone: identifier } : { email: identifier }
+        where: method === 'phone' ? { phone: phoneCandidates } : { email: identifier }
       });
     }
 
@@ -1306,7 +1314,8 @@ const forgotPassword = async (req, res) => {
         `<p>Your Eminence password reset code is: <b>${code}</b></p><p>Valid for 10 minutes.</p>`
       );
     } else {
-      await smsService.sendSMS(user.phone, `Your Eminence password reset OTP is ${code}. Valid for 10 minutes.`);
+      const targetPhone = smsService.normalizeIndianPhone(user.phone) || user.phone;
+      await smsService.sendSMS(targetPhone, `Your Eminence password reset OTP is ${code}. Valid for 10 minutes.`);
     }
 
     return res.status(200).json({
@@ -1339,13 +1348,16 @@ const resetPassword = async (req, res) => {
     }
 
     let user;
+    const cleanPhone = method === 'phone' ? (smsService.normalizeIndianPhone(identifier) || String(identifier).trim().replace(/^(\+91|91)/, '').replace(/\D/g, '')) : null;
+    const phoneCandidates = method === 'phone' ? [cleanPhone, String(identifier).trim()].filter(Boolean) : null;
+
     if (role === 'driver') {
       user = await Driver.findOne({
-        where: method === 'phone' ? { phone: identifier } : { email: identifier }
+        where: method === 'phone' ? { phone: phoneCandidates } : { email: identifier }
       });
     } else {
       user = await Customer.findOne({
-        where: method === 'phone' ? { phone: identifier } : { email: identifier }
+        where: method === 'phone' ? { phone: phoneCandidates } : { email: identifier }
       });
     }
 
