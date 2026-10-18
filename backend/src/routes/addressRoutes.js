@@ -4,11 +4,10 @@ const { Address } = require('../models');
 const authMiddleware = require('../middleware/authMiddleware');
 const { addressRateLimiter } = require('../middleware/rateLimiter');
 
-router.use(addressRateLimiter);
 router.use(authMiddleware);
 
 // Get all addresses for user
-router.get('/', async (req, res) => {
+router.get('/', addressRateLimiter, async (req, res) => {
   try {
     const addresses = await Address.findAll({ where: { customerId: req.user.id } });
     res.json(addresses);
@@ -18,7 +17,7 @@ router.get('/', async (req, res) => {
 });
 
 // Add new address
-router.post('/', async (req, res) => {
+router.post('/', addressRateLimiter, async (req, res) => {
   try {
     const { label, street, city, postalCode } = req.body;
     if (!req.user || !req.user.id) {
@@ -44,7 +43,7 @@ router.post('/', async (req, res) => {
 });
 
 // Delete address
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', addressRateLimiter, async (req, res) => {
   try {
     const address = await Address.findOne({ where: { id: req.params.id, customerId: req.user.id } });
     if (!address) {

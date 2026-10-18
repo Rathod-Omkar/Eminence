@@ -12,6 +12,15 @@ let currentConcurrentRequests = 0;
 let dailyRequestsCount = 0;
 let lastResetDateUtc = new Date().toISOString().split('T')[0];
 
+const getPositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const getSupportContact = () => process.env.SUPPORT_PHONE
+  ? `call ${process.env.SUPPORT_PHONE}`
+  : 'use the in-app support channel';
+
 // Sliding window per-user request timestamps: Map<userIdOrIp, Array<number>>
 const userRequestTimestamps = new Map();
 
@@ -57,24 +66,24 @@ function tryAcquireAiSlot(userIdOrIp) {
     return {
       allowed: false,
       reason: 'AI_DISABLED',
-      message: 'AI assistance is temporarily disabled for scheduled maintenance. Please use manual booking or contact our 24/7 Helpline: +91 91723 93084.'
+      message: `AI assistance is temporarily disabled for scheduled maintenance. Please use manual booking or ${getSupportContact()}.`
     };
   }
 
   checkDayReset();
 
   // 2. Global Daily Quota Protection
-  const dailyQuotaLimit = parseInt(process.env.AI_DAILY_QUOTA_LIMIT || '500', 10);
+  const dailyQuotaLimit = getPositiveInt(process.env.AI_DAILY_QUOTA_LIMIT, 500);
   if (dailyRequestsCount >= dailyQuotaLimit) {
     return {
       allowed: false,
       reason: 'DAILY_QUOTA_EXCEEDED',
-      message: 'Daily AI usage quota has been reached. Please try again tomorrow or contact customer support at +91 91723 93084.'
+      message: `Daily AI usage quota has been reached. Please try again tomorrow or ${getSupportContact()}.`
     };
   }
 
   // 3. Global Concurrency Cap
-  const maxConcurrent = parseInt(process.env.AI_MAX_CONCURRENT_REQUESTS || '5', 10);
+  const maxConcurrent = getPositiveInt(process.env.AI_MAX_CONCURRENT_REQUESTS, 5);
   if (currentConcurrentRequests >= maxConcurrent) {
     return {
       allowed: false,
@@ -84,7 +93,7 @@ function tryAcquireAiSlot(userIdOrIp) {
   }
 
   // 4. Per-User Sliding Window Rate Limit
-  const userRateLimit = parseInt(process.env.AI_USER_RATE_LIMIT_PER_MINUTE || '10', 10);
+  const userRateLimit = getPositiveInt(process.env.AI_USER_RATE_LIMIT_PER_MINUTE, 10);
   const now = Date.now();
   const rawTimestamps = userRequestTimestamps.get(userIdOrIp) || [];
   const recentTimestamps = rawTimestamps.filter(t => now - t < 60000);
@@ -114,7 +123,9 @@ function tryAcquireAiSlot(userIdOrIp) {
       const outcome = metadata.outcome || 'success';
       const duration = metadata.durationMs || 0;
       const model = metadata.model || 'groq';
-      console.log(`[AI Telemetry] outcome=${outcome} durationMs=${duration} model=${model}`);
+      const inputChars = Number.isInteger(metadata.inputChars) ? metadata.inputChars : 0;
+      const outputTokens = Number.isInteger(metadata.outputTokens) ? metadata.outputTokens : 0;
+      console.log(`[AI Telemetry] outcome=${outcome} durationMs=${duration} model=${model} inputChars=${inputChars} outputTokens=${outputTokens}`);
     }
   };
 
@@ -133,7 +144,7 @@ function tryAcquireAiSlot(userIdOrIp) {
  * @returns {Promise<any>}
  */
 async function executeWithBoundedTimeout(taskFn, options = {}) {
-  const timeoutMs = options.timeoutMs || parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '8000', 10);
+  const timeoutMs = options.timeoutMs || getPositiveInt(process.env.AI_REQUEST_TIMEOUT_MS, 8000);
 
   let timeoutHandle;
   const timeoutPromise = new Promise((_, reject) => {
@@ -162,10 +173,10 @@ function getAiUsageMetrics() {
   return {
     isEnabled: process.env.AI_FEATURE_ENABLED !== 'false',
     dailyRequestsCount,
-    dailyQuotaLimit: parseInt(process.env.AI_DAILY_QUOTA_LIMIT || '500', 10),
+    dailyQuotaLimit: getPositiveInt(process.env.AI_DAILY_QUOTA_LIMIT, 500),
     currentConcurrentRequests,
-    maxConcurrentRequests: parseInt(process.env.AI_MAX_CONCURRENT_REQUESTS || '5', 10),
-    userRateLimitPerMinute: parseInt(process.env.AI_USER_RATE_LIMIT_PER_MINUTE || '10', 10),
+    maxConcurrentRequests: getPositiveInt(process.env.AI_MAX_CONCURRENT_REQUESTS, 5),
+    userRateLimitPerMinute: getPositiveInt(process.env.AI_USER_RATE_LIMIT_PER_MINUTE, 10),
     trackedUsersCount: userRequestTimestamps.size
   };
 }

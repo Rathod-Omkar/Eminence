@@ -3,6 +3,40 @@ const jwt = require('jsonwebtoken');
 
 let io;
 let pool;
+const socketConnectionAttempts = new Map();
+const socketEventTimestamps = new Map();
+
+const getSocketLimit = (envName, productionDefault, nonProductionDefault) => {
+  const configured = Number.parseInt(process.env[envName], 10);
+  if (Number.isInteger(configured) && configured > 0) return configured;
+  return process.env.NODE_ENV === 'production' ? productionDefault : nonProductionDefault;
+};
+
+const getSocketClientKey = (socket) => (
+  socket.handshake.address ||
+  socket.handshake.headers?.['x-real-ip'] ||
+  socket.conn?.remoteAddress ||
+  'unknown'
+);
+
+const consumeSocketEvent = (socket, eventName, max, windowMs) => {
+  const key = `${socket.id}:${eventName}`;
+  const now = Date.now();
+  const recent = (socketEventTimestamps.get(key) || []).filter((timestamp) => now - timestamp < windowMs);
+  if (recent.length >= max) return false;
+  recent.push(now);
+  socketEventTimestamps.set(key, recent);
+  return true;
+};
+
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const [key, timestamps] of socketConnectionAttempts.entries()) {
+    const recent = timestamps.filter((timestamp) => timestamp > cutoff);
+    if (recent.length === 0) socketConnectionAttempts.delete(key);
+    else socketConnectionAttempts.set(key, recent);
+  }
+}, 5 * 60 * 1000).unref();
 
 const initSocket = (httpServer) => {
   const allowedOrigins = process.env.CORS_ORIGIN
@@ -29,6 +63,21 @@ const initSocket = (httpServer) => {
       methods: ['GET', 'POST'],
       credentials: true
     }
+  });
+
+  // Per-instance connection-attempt guard. Shared storage is required for exact limits across replicas.
+  io.use((socket, next) => {
+    const key = getSocketClientKey(socket);
+    const now = Date.now();
+    const recent = (socketConnectionAttempts.get(key) || [])
+      .filter((timestamp) => now - timestamp < 15 * 60 * 1000);
+    const maxAttempts = getSocketLimit('SOCKET_CONNECTION_MAX', 30, 1000);
+    if (recent.length >= maxAttempts) {
+      return next(new Error('Too many connection attempts. Please try again later.'));
+    }
+    recent.push(now);
+    socketConnectionAttempts.set(key, recent);
+    return next();
   });
 
   const dbUrl = process.env.DATABASE_URL;
@@ -85,7 +134,7 @@ const initSocket = (httpServer) => {
                   cookieToken;
 
     if (!token) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === 'development' && process.env.TEST_FIXTURES === 'true') {
         socket.user = { id: 'dev-user', role: 'customer' };
         return next();
       }
@@ -103,7 +152,7 @@ const initSocket = (httpServer) => {
       socket.user = decoded;
       next();
     } catch (err) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === 'development' && process.env.TEST_FIXTURES === 'true') {
         socket.user = { id: 'dev-user', role: 'customer' };
         return next();
       }
@@ -132,7 +181,7 @@ const initSocket = (httpServer) => {
       }
 
       // Local development bypass
-      if (process.env.NODE_ENV === 'development' && socket.user.id === 'dev-user') {
+      if (process.env.NODE_ENV === 'development' && process.env.TEST_FIXTURES === 'true' && socket.user.id === 'dev-user') {
         socket.join(`trip_${bookingId}`);
         console.log(`[Socket] Dev user ${socket.id} joined trip_${bookingId}`);
         return socket.emit('joined_trip', { bookingId });
@@ -171,6 +220,9 @@ const initSocket = (httpServer) => {
     socket.on('driver:location_update', async (data) => {
       if (!socket.user || (socket.user.role !== 'driver' && socket.user.role !== 'admin')) {
         return socket.emit('error', { message: 'Unauthorized: Driver role required to send location updates' });
+      }
+      if (!consumeSocketEvent(socket, 'driver:location_update', getSocketLimit('SOCKET_LOCATION_MAX_PER_MINUTE', 120, 1000), 60 * 1000)) {
+        return socket.emit('error', { message: 'Location update rate limit exceeded' });
       }
       const { bookingId, lat, lng } = data;
 
@@ -211,7 +263,13 @@ const initSocket = (httpServer) => {
 
     // Driver joins vehicle telemetry room
     socket.on('join_vehicle_telemetry', (vehicleId) => {
-      const targetVehicle = vehicleId || 'VEH-1234';
+      if (!socket.user || (socket.user.role !== 'driver' && socket.user.role !== 'admin')) {
+        return socket.emit('error', { message: 'Unauthorized: Driver or admin role required' });
+      }
+      if (!vehicleId) {
+        return socket.emit('error', { message: 'Vehicle ID is required' });
+      }
+      const targetVehicle = String(vehicleId);
       socket.join(`vehicle_${targetVehicle}`);
       socket.emit('joined_vehicle_telemetry', { vehicleId: targetVehicle });
       console.log(`[Socket] Driver/Client ${socket.id} joined vehicle_${targetVehicle}`);
@@ -219,9 +277,9 @@ const initSocket = (httpServer) => {
 
     // Development/QA mock telemetry injection
     socket.on('qa:inject_telemetry', (data) => {
-      if (process.env.NODE_ENV !== 'production' && data) {
+      if (process.env.NODE_ENV !== 'production' && process.env.TEST_FIXTURES === 'true' && data?.vehicleId) {
         const payload = {
-          vehicleId: data.vehicleId || 'VEH-1234',
+          vehicleId: String(data.vehicleId),
           timestamp: new Date().toISOString(),
           temperature: Number(data.temperature) || 90,
           engineTemp: Number(data.temperature) || 90,
@@ -249,10 +307,11 @@ const initSocket = (httpServer) => {
       const telemetryStatus = getTelemetryStatus();
       socket.emit('telemetry_status', telemetryStatus);
 
-      if (telemetryStatus.simulated) {
+      const simulationVehicleId = process.env.TELEMETRY_SIMULATION_VEHICLE_ID;
+      if (telemetryStatus.simulated && simulationVehicleId) {
         const { startTelemetrySimulation, getTelemetryHistory } = require('./services/telematicsSimulator');
-        startTelemetrySimulation('VEH-1234');
-        socket.emit('telemetry_history', getTelemetryHistory('VEH-1234'));
+        startTelemetrySimulation(simulationVehicleId);
+        socket.emit('telemetry_history', getTelemetryHistory(simulationVehicleId));
       }
     });
 
@@ -264,15 +323,22 @@ const initSocket = (httpServer) => {
       socket.leave('admin_telemetry');
       console.log(`[Socket] Admin ${socket.id} left admin_telemetry`);
       const { stopTelemetrySimulation } = require('./services/telematicsSimulator');
-      stopTelemetrySimulation('VEH-1234');
+      if (process.env.TELEMETRY_SIMULATION_VEHICLE_ID) {
+        stopTelemetrySimulation(process.env.TELEMETRY_SIMULATION_VEHICLE_ID);
+      }
     });
 
     socket.on('disconnect', () => {
       console.log(`[Socket] Client disconnected: ${socket.id}`);
+      for (const key of socketEventTimestamps.keys()) {
+        if (key.startsWith(`${socket.id}:`)) socketEventTimestamps.delete(key);
+      }
       // Clean up mock simulation if admin disconnects
       try {
         const { stopTelemetrySimulation } = require('./services/telematicsSimulator');
-        stopTelemetrySimulation('VEH-1234');
+        if (process.env.TELEMETRY_SIMULATION_VEHICLE_ID) {
+          stopTelemetrySimulation(process.env.TELEMETRY_SIMULATION_VEHICLE_ID);
+        }
       } catch (err) {}
     });
   });

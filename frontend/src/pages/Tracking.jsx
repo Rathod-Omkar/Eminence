@@ -10,9 +10,6 @@ import { getToken } from '../services/tokenService';
 import { io } from 'socket.io-client';
 import { geocodeAddress, fetchOsrmRoute } from '../utils/puneGeocoder';
 
-// Pune coordinates for default mock telemetry
-const PUNE_POSITION = [18.5204, 73.8567];
-
 const Tracking = () => {
   const { bookingId } = useParams();
   const { user } = useSelector((state) => state.auth);
@@ -26,12 +23,10 @@ const Tracking = () => {
   const [isReconnecting, setIsReconnecting] = useState(!navigator.onLine);
   const [telemetry, setTelemetry] = useState({
     speed: 0,
-    lat: PUNE_POSITION[0],
-    lng: PUNE_POSITION[1],
+    lat: null,
+    lng: null,
     lastSynced: new Date().toLocaleTimeString(),
   });
-  const fallbackPodHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-
   const [effectiveBookingId, setEffectiveBookingId] = useState(bookingId || null);
   const [hasNoActiveBooking, setHasNoActiveBooking] = useState(false);
 
@@ -105,12 +100,11 @@ const Tracking = () => {
           if (data.status === 'completed') setIsReviewModalOpen(true);
           
           // Re-fetch latest telemetry state (Speed, Location) upon load or reconnection
-          const updatedSpeed = data.status === 'in_transit' ? 44 : (data.status === 'driver_assigned' ? 28 : 0);
           const driverLat = data.driver?.currentLat || data.currentLat;
           const driverLng = data.driver?.currentLng || data.currentLng;
           
-          let initialLat = driverLat || PUNE_POSITION[0];
-          let initialLng = driverLng || PUNE_POSITION[1];
+          let initialLat = driverLat || null;
+          let initialLng = driverLng || null;
 
           // If driver arrived at pickup, anchor position directly at pickup
           if (data.status === 'arrived' && data.pickupLat && data.pickupLng) {
@@ -119,7 +113,7 @@ const Tracking = () => {
           }
 
           setTelemetry({
-            speed: data.status === 'arrived' ? 0 : updatedSpeed,
+            speed: Number.isFinite(Number(data.speed)) ? Number(data.speed) : 0,
             lat: initialLat,
             lng: initialLng,
             lastSynced: new Date().toLocaleTimeString(),
@@ -136,7 +130,7 @@ const Tracking = () => {
     resolveAndLoadBooking();
 
     const token = user?.token || getToken();
-    const rawSocketUrl = import.meta.env.VITE_API_URL || api.defaults.baseURL || 'http://localhost:3000';
+    const rawSocketUrl = import.meta.env.VITE_API_URL || api.defaults.baseURL || window.location.origin;
     const socketUrl = rawSocketUrl.replace(/\/api\/?$/, '');
     const socket = io(socketUrl, {
       reconnection: true,
@@ -456,10 +450,10 @@ const Tracking = () => {
       <div className="w-full md:flex-1 h-[45vh] md:h-full relative bg-loft-900 border-b md:border-b-0 md:border-r border-loft-800 z-0">
         <TrackingMap 
           bookingId={effectiveBookingId || bookingId} 
-          initialLat={PUNE_POSITION[0]} 
-          initialLng={PUNE_POSITION[1]} 
+          initialLat={telemetry.lat}
+          initialLng={telemetry.lng}
           isReconnecting={isReconnecting}
-          currentPosition={[telemetry.lat || PUNE_POSITION[0], telemetry.lng || PUNE_POSITION[1]]}
+          currentPosition={telemetry.lat != null && telemetry.lng != null ? [telemetry.lat, telemetry.lng] : null}
           routeCoordinates={routeData?.polyline || []}
           pickupPosition={pickupCoord ? [pickupCoord.lat, pickupCoord.lng] : null}
           dropPosition={dropCoord ? [dropCoord.lat, dropCoord.lng] : null}
@@ -467,7 +461,7 @@ const Tracking = () => {
           pickupAddress={booking?.pickupAddress}
           dropAddress={booking?.dropAddress}
           driverName={booking?.driver?.name || (booking?.is3plOutsourced ? booking?.thirdPartyProvider : 'Driver')}
-          vehicleNumber={booking?.vehicle?.registrationNumber || (booking?.is3plOutsourced ? '3PL-PARTNER' : 'MH 12 AB 1234')}
+          vehicleNumber={booking?.vehicle?.registrationNumber || (booking?.is3plOutsourced ? '3PL-PARTNER' : '')}
           speed={telemetry.speed}
           status={status}
         />
@@ -629,7 +623,7 @@ const Tracking = () => {
             <div className="p-2 bg-loft-950/80 rounded-lg border border-loft-800 text-center">
               <span className="text-[10px] text-loft-400 block mb-0.5">Location</span>
               <span data-testid="telemetry-location" className="text-[11px] font-mono font-semibold text-loft-200 block truncate">
-                {(telemetry.lat || PUNE_POSITION[0]).toFixed(3)}°, {(telemetry.lng || PUNE_POSITION[1]).toFixed(3)}°
+                {telemetry.lat != null && telemetry.lng != null ? `${telemetry.lat.toFixed(3)}°, ${telemetry.lng.toFixed(3)}°` : 'Waiting for GPS'}
               </span>
             </div>
           </div>
@@ -667,11 +661,11 @@ const Tracking = () => {
             </div>
             <div className="bg-loft-950/90 p-2.5 rounded-lg border border-loft-800 flex items-center justify-between">
               <span className="font-mono text-[10px] text-moss-300 break-all select-all pr-2">
-                {booking?.podHash || fallbackPodHash}
+                {booking?.podHash || 'Proof of delivery pending'}
               </span>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(booking?.podHash || fallbackPodHash);
+                  navigator.clipboard.writeText(booking?.podHash || '');
                   setCopiedPod(true);
                   setTimeout(() => setCopiedPod(false), 2000);
                 }}
@@ -868,8 +862,8 @@ const Tracking = () => {
         isOpen={isReviewModalOpen} 
         onClose={() => setIsReviewModalOpen(false)} 
         bookingId={bookingId} 
-        driverId={booking?.driverId || "d1234567-89ab-cdef-0123-456789abcdef"} 
-        driverName={booking?.is3plOutsourced ? booking?.thirdPartyProvider : (booking?.driver?.name || "Ramesh Kumar")} 
+        driverId={booking?.driverId}
+        driverName={booking?.is3plOutsourced ? booking?.thirdPartyProvider : booking?.driver?.name}
       />
     </div>
   );

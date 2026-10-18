@@ -439,7 +439,7 @@ const Booking = () => {
         isValid: false 
       };
     }
-    if (!/^[6-9]/.test(raw) && raw !== '1234567890') {
+    if (!/^[6-9]/.test(raw)) {
       return { 
         status: 'invalid', 
         message: 'Must begin with 6, 7, 8, or 9 (standard Indian mobile)', 
@@ -670,9 +670,15 @@ const Booking = () => {
 
       const res = await api.post('/api/wallet/create-order', { amount: amountNum });
       const { order, keyId } = res.data;
+      const razorpayKey = keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
+      if (!razorpayKey) {
+        setTopupError('Payment gateway is not configured. Please contact support.');
+        setIsProcessingTopup(false);
+        return;
+      }
 
       const options = {
-        key: keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        key: razorpayKey,
         amount: order.amount,
         currency: order.currency || 'INR',
         name: 'Eminence Logistics',
@@ -853,10 +859,16 @@ const Booking = () => {
         }
 
         const orderRes = await api.post('/api/integrations/payment/create-order', { bookingId });
-        const { order } = orderRes.data;
+        const { order, keyId } = orderRes.data;
+        const razorpayKey = keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
+        if (!razorpayKey) {
+          setError('Payment gateway is not configured. Please contact support.');
+          setIsSubmitting(false);
+          return;
+        }
 
         const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+          key: razorpayKey,
           amount: order.amount,
           currency: order.currency,
           name: 'Eminence Logistics',
@@ -878,7 +890,7 @@ const Booking = () => {
           prefill: {
             name: user?.name || 'Customer',
             email: user?.email || 'customer@example.com',
-            contact: formData.phone || user?.phone || '9999999999',
+            contact: formData.phone || user?.phone || '',
           },
           theme: { color: '#b87333' },
           modal: { ondismiss: function () { setIsSubmitting(false); } }

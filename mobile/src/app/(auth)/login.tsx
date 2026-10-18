@@ -120,19 +120,6 @@ export default function LoginScreen() {
     }
   };
 
-  const fillDemoCustomer = () => {
-    setPhone('1234567890');
-    setRole('customer');
-    setErrorMessage('');
-  };
-
-  const fillDemoOtp = () => {
-    setOtp('123456');
-    setErrorMessage('');
-  };
-
-
-
   const handleAdminLogin = async () => {
     if (!email || !password) {
       setErrorMessage('Please enter both email and password');
@@ -376,7 +363,7 @@ export default function LoginScreen() {
                 />
               </View>
 
-              {role === 'driver' && (
+              {__DEV__ && process.env.EXPO_PUBLIC_ENABLE_TEST_AUTH === 'true' && role === 'driver' && (
                 <TouchableOpacity
                   style={styles.demoFillBtn}
                   onPress={() => {

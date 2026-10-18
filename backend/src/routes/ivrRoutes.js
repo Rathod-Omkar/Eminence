@@ -33,7 +33,7 @@ const optionalAuth = (req, _res, next) => {
   next();
 };
 
-const { voiceQueryLimiter } = require('../middleware/rateLimiter');
+const { voiceQueryLimiter, webhookLimiter } = require('../middleware/rateLimiter');
 
 // Health & Status
 router.get('/health', ivrController.getHealth);
@@ -42,8 +42,8 @@ router.get('/health', ivrController.getHealth);
 router.post('/voice-query', optionalAuth, voiceQueryLimiter, upload.single('audio'), ivrController.handleVoiceQuery);
 
 // Telephony Webhooks (Twilio / Exotel Inbound Call & Recording)
-router.post('/webhook', ivrController.handleIncomingWebhook);
-router.get('/webhook', ivrController.handleIncomingWebhook);
-router.post('/recording-callback', ivrController.handleRecordingCallback);
+router.post('/webhook', webhookLimiter, ivrController.handleIncomingWebhook);
+router.get('/webhook', webhookLimiter, ivrController.handleIncomingWebhook);
+router.post('/recording-callback', webhookLimiter, ivrController.handleRecordingCallback);
 
 module.exports = router;

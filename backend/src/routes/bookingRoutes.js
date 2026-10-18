@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const bookingController = require('../controllers/bookingController');
 const protect = require('../middleware/authMiddleware');
-const { bookingsLimiter, aiBookingLimiter } = require('../middleware/rateLimiter');
+const { bookingsLimiter, bookingCreateLimiter, aiBookingLimiter } = require('../middleware/rateLimiter');
 
-router.post('/', protect, bookingsLimiter, bookingController.createBooking);
+router.post('/', protect, bookingCreateLimiter, bookingController.createBooking);
 router.get('/', protect, bookingsLimiter, bookingController.getAllBookings);
 router.get('/:id', protect, bookingsLimiter, bookingController.getBookingById);
 router.put('/:id/status', protect, bookingsLimiter, bookingController.updateBookingStatus);

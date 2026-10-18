@@ -12,6 +12,8 @@ import DriverNavigationMap from '../components/Driver/DriverNavigationMap';
 import DriverSosModal from '../components/Driver/DriverSosModal';
 
 const DriverDashboard = () => {
+  const demoSimulationEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_TEST_AUTH === 'true';
+  const isDemoRide = (ride) => demoSimulationEnabled && ride?.bookingId?.startsWith('demo-sim-');
   const { user, token } = useSelector((state) => state.auth);
   const [activeTab, setActiveTab] = useState('today');
   const [isOnline, setIsOnline] = useState(true);
@@ -28,7 +30,7 @@ const DriverDashboard = () => {
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [activeRide, setActiveRide] = useState(null);
-  const [driverPos, setDriverPos] = useState({ lat: 18.5204, lng: 73.8567 });
+  const [driverPos, setDriverPos] = useState(null);
   const [podHash, setPodHash] = useState(null);
   const [showPod, setShowPod] = useState(false);
   const [isFinishingTrip, setIsFinishingTrip] = useState(false);
@@ -216,7 +218,7 @@ const DriverDashboard = () => {
         });
       }
     }
-    if (activeRide.bookingId?.startsWith('demo-sim-')) {
+    if (isDemoRide(activeRide)) {
       setActiveRide(prev => ({ ...prev, status: 'arrived' }));
       return;
     }
@@ -245,7 +247,7 @@ const DriverDashboard = () => {
 
     try {
       // Demo simulation mode handling
-      if (activeRide.bookingId?.startsWith('demo-sim-')) {
+      if (isDemoRide(activeRide)) {
         const validCode = activeRide.otp || '8492';
         if (code !== validCode && code !== '8492' && code !== '1234') {
           setSideOtpError(`Invalid Start Ride OTP. (Demo OTP is ${validCode})`);
@@ -329,7 +331,7 @@ const DriverDashboard = () => {
     setIsFinishingTrip(true);
 
     // If demo simulation:
-    if (activeRide.bookingId?.startsWith('demo-sim-')) {
+    if (isDemoRide(activeRide)) {
       const demoHash = 'POD-' + Math.random().toString(36).substring(2, 10).toUpperCase() + '-' + Date.now().toString(36).substring(4).toUpperCase();
       setPodHash(demoHash);
       setShowPod(true);
@@ -585,14 +587,14 @@ const DriverDashboard = () => {
 
                       {/* Appointed Action */}
                       <div className="relative z-10 pt-2">
-                        <button 
+                        {demoSimulationEnabled && <button
                           onClick={handleAcceptTrip} 
                           disabled={isLoading}
                           className="btn-primary w-full py-4 text-lg font-bold flex items-center justify-center gap-3 shadow-[0_0_25px_rgba(232,99,49,0.35)] hover:shadow-[0_0_35px_rgba(232,99,49,0.5)] transition-all cursor-pointer"
                         >
                           <Navigation className="w-5 h-5" />
                           Start Navigation & Delivery
-                        </button>
+                        </button>}
                       </div>
                     </div>
 
@@ -834,7 +836,7 @@ const DriverDashboard = () => {
                               <div className="space-y-2 mt-2 pt-2 border-t border-sky-500/20">
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className="text-loft-300 font-medium">Customer OTP:</span>
-                                  {(activeRide?.otp || activeRide?.bookingId?.startsWith('demo-sim-')) && (
+                                  {(activeRide?.otp || isDemoRide(activeRide)) && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -962,7 +964,7 @@ const DriverDashboard = () => {
                             type="button"
                             onClick={() => {
                               setIsNavigating(false);
-                              if (activeRide?.bookingId?.startsWith('demo-sim-')) {
+                              if (isDemoRide(activeRide)) {
                                 setActiveRide(null);
                               }
                             }}

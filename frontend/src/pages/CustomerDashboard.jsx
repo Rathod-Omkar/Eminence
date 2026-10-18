@@ -582,9 +582,15 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
 
       const res = await api.post('/api/wallet/create-order', { amount: amountNum });
       const { order, keyId } = res.data;
+      const razorpayKey = keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
+      if (!razorpayKey) {
+        setTopupError('Payment gateway is not configured. Please contact support.');
+        setIsProcessingTopup(false);
+        return;
+      }
 
       const options = {
-        key: keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        key: razorpayKey,
         amount: order.amount,
         currency: order.currency || 'INR',
         name: 'Eminence Logistics',
@@ -651,9 +657,15 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
 
       const res = await api.post('/api/customer/pro/create-order');
       const { order, keyId } = res.data;
+      const razorpayKey = keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
+      if (!razorpayKey) {
+        setTopupError('Payment gateway is not configured. Please contact support.');
+        setIsProcessingPro(false);
+        return;
+      }
 
       const options = {
-        key: keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        key: razorpayKey,
         amount: order.amount,
         currency: order.currency || 'INR',
         name: 'Eminence Logistics',
@@ -2410,8 +2422,8 @@ const CustomerDashboard = ({ initialTab = 'history', autoOpenTopup = false }) =>
             setReviewTrip(null);
           }}
           bookingId={reviewTrip.id}
-          driverId={reviewTrip.driverId || 'd1234567-89ab-cdef-0123-456789abcdef'}
-          driverName={reviewTrip.driverName || 'Ramesh Kumar'}
+          driverId={reviewTrip.driverId}
+          driverName={reviewTrip.driverName}
         />
       )}
 

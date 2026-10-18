@@ -208,17 +208,20 @@ describe('Security Audit & Hardening Verification Suite', () => {
     const origEnv = process.env.NODE_ENV;
     const origDb = process.env.DATABASE_URL;
     const origJwt = process.env.JWT_SECRET;
+    const origCors = process.env.CORS_ORIGIN;
 
     afterEach(() => {
       process.env.NODE_ENV = origEnv;
       process.env.DATABASE_URL = origDb;
       process.env.JWT_SECRET = origJwt;
+      process.env.CORS_ORIGIN = origCors;
     });
 
     it('must throw in production if DATABASE_URL is missing', () => {
       process.env.NODE_ENV = 'production';
       delete process.env.DATABASE_URL;
       process.env.JWT_SECRET = 'a_very_secure_long_random_jwt_secret_32_chars';
+      process.env.CORS_ORIGIN = 'https://app.example.com';
 
       expect(() => validateEnv()).toThrow(/Production environment validation failed/);
     });
@@ -227,6 +230,7 @@ describe('Security Audit & Hardening Verification Suite', () => {
       process.env.NODE_ENV = 'production';
       process.env.DATABASE_URL = 'postgresql://user:pass@ep-xyz.neon.tech/eminence_db';
       process.env.JWT_SECRET = 'your_super_secret_jwt_key_here';
+      process.env.CORS_ORIGIN = 'https://app.example.com';
 
       expect(() => validateEnv()).toThrow(/Production environment validation failed/);
     });
@@ -235,8 +239,23 @@ describe('Security Audit & Hardening Verification Suite', () => {
       process.env.NODE_ENV = 'production';
       process.env.DATABASE_URL = 'postgresql://user:pass@ep-xyz.neon.tech/eminence_db';
       process.env.JWT_SECRET = 'a_very_secure_long_random_jwt_secret_32_chars';
+      process.env.CORS_ORIGIN = 'https://app.example.com';
+      process.env.RAZORPAY_KEY_ID = 'rzp_live_configured_for_test';
+      process.env.RAZORPAY_KEY_SECRET = 'configured-payment-secret-for-test';
 
       expect(() => validateEnv()).not.toThrow();
+    });
+
+    it('must reject missing or loopback CORS origins in production', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.DATABASE_URL = 'postgresql://user:pass@ep-xyz.neon.tech/eminence_db';
+      process.env.JWT_SECRET = 'a_very_secure_long_random_jwt_secret_32_chars';
+      delete process.env.CORS_ORIGIN;
+
+      expect(() => validateEnv()).toThrow(/Production environment validation failed/);
+
+      process.env.CORS_ORIGIN = 'http://localhost:5173';
+      expect(() => validateEnv()).toThrow(/Production environment validation failed/);
     });
   });
 });

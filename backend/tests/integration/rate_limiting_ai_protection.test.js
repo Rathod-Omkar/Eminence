@@ -15,6 +15,21 @@ const {
 } = require('../../src/services/aiUsageManager');
 const { checkFaqCache, handleSupportMessage } = require('../../src/services/supportBotService');
 
+jest.mock('groq-sdk', () => class MockGroq {
+  constructor() {
+    this.chat = {
+      completions: {
+        create: jest.fn().mockRejectedValue(Object.assign(new Error('provider quota exhausted'), { status: 429 }))
+      }
+    };
+    this.audio = {
+      transcriptions: {
+        create: jest.fn()
+      }
+    };
+  }
+});
+
 describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', () => {
   const JWT_SECRET = process.env.JWT_SECRET || 'test_phase2c_jwt_secret_key_32_chars!';
   process.env.JWT_SECRET = JWT_SECRET;
@@ -35,6 +50,7 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
     delete process.env.AI_MAX_CONCURRENT_REQUESTS;
     delete process.env.AI_USER_RATE_LIMIT_PER_MINUTE;
     delete process.env.AI_REQUEST_TIMEOUT_MS;
+    delete process.env.GROQ_API_KEY;
   });
 
   afterAll(() => {
@@ -148,6 +164,22 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
         expect(res.status).toBe(200);
       }
     });
+
+    test('5a. Authenticated expensive routes attribute limits to verified user identity', async () => {
+      const testApp = express();
+      const authHeaderParser = (req, _res, next) => {
+        req.user = jwt.verify(req.headers.authorization.split(' ')[1], JWT_SECRET);
+        next();
+      };
+      const userLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 1 });
+      testApp.post('/api/expensive', authHeaderParser, userLimiter, (_req, res) => res.json({ success: true }));
+
+      const tokenA = jwt.sign({ id: 'expensive-user-a', role: 'customer' }, JWT_SECRET);
+      const tokenB = jwt.sign({ id: 'expensive-user-b', role: 'customer' }, JWT_SECRET);
+      await request(testApp).post('/api/expensive').set('Authorization', `Bearer ${tokenA}`);
+      expect((await request(testApp).post('/api/expensive').set('Authorization', `Bearer ${tokenA}`)).status).toBe(429);
+      expect((await request(testApp).post('/api/expensive').set('Authorization', `Bearer ${tokenB}`)).status).toBe(200);
+    });
   });
 
   // =========================================================================
@@ -233,6 +265,15 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
       ).rejects.toThrow(/timed out after 50ms/i);
     });
 
+    test('10a. Missing AI provider does not consume a concurrency slot', () => {
+      delete process.env.GROQ_API_KEY;
+      process.env.AI_MAX_CONCURRENT_REQUESTS = '1';
+      const slot = tryAcquireAiSlot('provider-missing-test');
+      expect(slot.allowed).toBe(true);
+      slot.release();
+      expect(getAiUsageMetrics().currentConcurrentRequests).toBe(0);
+    });
+
     test('11. FAQ fast-cache answers common questions instantly with 0 AI slots used', async () => {
       const faq1 = checkFaqCache('How much does it cost?');
       expect(faq1).not.toBeNull();
@@ -244,7 +285,8 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
 
       const faq3 = checkFaqCache('What is the helpline phone number?');
       expect(faq3).not.toBeNull();
-      expect(faq3).toMatch(/91723 93084/);
+      expect(faq3).toMatch(/Support contact:/);
+      expect(faq3).not.toMatch(/1234567890/);
 
       // Verify no AI slot was reserved for FAQ hits
       const metrics = getAiUsageMetrics();
@@ -260,8 +302,8 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
       process.env.AI_FEATURE_ENABLED = 'false';
 
       const response = await handleSupportMessage('cust-1', 'I have a complex billing inquiry');
-      expect(response).toMatch(/helpline: \+91 91723 93084/i);
       expect(response).toMatch(/temporarily (disabled|unavailable)|capacity/i);
+      expect(response).not.toMatch(/91723 93084|1234567890/);
     });
 
     test('13. AI Voice booking endpoint falls back seamlessly to deterministic NLP when Groq is unavailable', async () => {
@@ -278,6 +320,7 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
       expect(res.body.booking).toBeDefined();
       expect(res.body.booking.pickupAddress.toLowerCase()).toContain('swargate');
       expect(res.body.booking.dropAddress.toLowerCase()).toContain('hadapsar');
+      expect(getAiUsageMetrics().dailyRequestsCount).toBe(0);
     });
 
     test('14. Oversized input transcripts are bounded to 500 chars to prevent token bloat', async () => {
@@ -295,6 +338,25 @@ describe('Phase 2C — Rate Limiting, AI API Protection & Cost Control Suite', (
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.booking.pickupAddress.toLowerCase()).toContain('pune');
+    });
+
+    test('14a. Client-supplied customerId cannot bypass authenticated ownership', async () => {
+      const res = await request(app)
+        .post('/api/bookings/ai-booking')
+        .send({
+          customerId: 'spoofed-customer-id',
+          transcript: 'Book a tempo from Swargate to Hadapsar',
+          previewOnly: true
+        });
+
+      expect(res.status).toBe(401);
+    });
+
+    test('14b. Provider 429 is handled once without retry storms', async () => {
+      process.env.GROQ_API_KEY = 'fixture-groq-key';
+      const response = await handleSupportMessage('provider-429-user', 'Where is my booking?');
+      expect(response).toMatch(/temporarily experiencing high demand|support/i);
+      expect(getAiUsageMetrics().currentConcurrentRequests).toBe(0);
     });
 
     test('15. Operational metrics track request counts and tracked users safely without PII', () => {

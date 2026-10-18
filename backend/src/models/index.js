@@ -180,8 +180,10 @@ const bootstrapDatabase = async () => {
 
 const initializeFleetAndDrivers = async () => {
   try {
+    const fixtureMode = process.env.NODE_ENV === 'test' ||
+      (process.env.NODE_ENV === 'development' && process.env.DEMO_SEED === 'true');
     const existingVehicles = await Vehicle.count();
-    if (existingVehicles === 0) {
+    if (existingVehicles === 0 && fixtureMode) {
       console.log('Initializing specific company fleet (8 tempos)...');
       const fleetData = [
         {
@@ -256,12 +258,11 @@ const initializeFleetAndDrivers = async () => {
       console.log('Seeded 8 dedicated fleet tempos successfully.');
     }
 
-    const isDevOrTest = process.env.NODE_ENV !== 'production';
     const driverCount = await Driver.count();
-    if (isDevOrTest && driverCount < 4) {
-      console.log('Provisioning primary fleet drivers (dev/test)...');
+    if (fixtureMode && driverCount < 4 && process.env.SEED_PASSWORD) {
+      console.log('Provisioning primary fleet drivers (test fixture)...');
       const bcrypt = require('bcrypt');
-      const defaultPassword = await bcrypt.hash('password123', 10);
+      const fixturePassword = await bcrypt.hash(process.env.SEED_PASSWORD, 10);
       const defaultDrivers = [
         { name: 'Ramesh Patil', phone: '9822011001', licenseNumber: 'MH12-2020-001001', email: 'ramesh.driver@eminence.com', status: 'active', rating: 4.9, termsAccepted: true },
         { name: 'Suresh Shinde', phone: '9822011002', licenseNumber: 'MH12-2020-001002', email: 'suresh.driver@eminence.com', status: 'active', rating: 4.8, termsAccepted: true },
@@ -274,7 +275,7 @@ const initializeFleetAndDrivers = async () => {
       for (const d of defaultDrivers) {
         const existing = await Driver.findOne({ where: { phone: d.phone } });
         if (!existing) {
-          await Driver.create({ ...d, password: defaultPassword });
+          await Driver.create({ ...d, password: fixturePassword });
         }
       }
       console.log('Provisioned fleet drivers successfully.');
@@ -302,10 +303,15 @@ const syncDatabase = async () => {
     await initializeFleetAndDrivers();
 
     // Ensure single authoritative admin exists based on environment configuration
-    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV) {
+    const fixtureMode = process.env.NODE_ENV === 'test' ||
+      (process.env.NODE_ENV === 'development' && process.env.DEMO_SEED === 'true');
+    if (fixtureMode) {
       const bcrypt = require('bcrypt');
-      const seedEmail = process.env.SEED_EMAIL || 'admin@eminence.com';
-      const seedPassword = process.env.SEED_PASSWORD || 'password123';
+      const seedEmail = process.env.SEED_EMAIL;
+      const seedPassword = process.env.SEED_PASSWORD;
+      if (!seedEmail || !seedPassword) {
+        throw new Error('Test/demo fixture mode requires SEED_EMAIL and SEED_PASSWORD.');
+      }
       const hashedSeedPassword = await bcrypt.hash(seedPassword, 10);
 
       // Clean up legacy admin@example.com if present
@@ -332,8 +338,8 @@ const syncDatabase = async () => {
     } else if (process.env.NODE_ENV === 'production') {
       const adminCount = await Admin.count();
       if (adminCount === 0) {
-        const adminEmail = process.env.ADMIN_EMAIL || process.env.SEED_EMAIL;
-        const adminPassword = process.env.ADMIN_PASSWORD || process.env.SEED_PASSWORD;
+        const adminEmail = process.env.ADMIN_EMAIL;
+        const adminPassword = process.env.ADMIN_PASSWORD;
         if (adminEmail && adminPassword) {
           const bcrypt = require('bcrypt');
           const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);

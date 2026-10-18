@@ -62,7 +62,13 @@ const googleLogin = async (req, res) => {
       name = decodedToken.name;
       picture = decodedToken.picture;
     } catch (adminError) {
-      console.warn('Firebase Admin verification skipped/failed, falling back to manual decode for local dev:', adminError.message);
+      const allowFixtureTokenDecode = process.env.NODE_ENV !== 'production' &&
+        process.env.TEST_FIXTURES === 'true';
+      if (!allowFixtureTokenDecode) {
+        console.warn('Firebase Admin verification failed:', adminError.message);
+        return res.status(401).json({ success: false, message: 'Invalid or expired Google ID token' });
+      }
+      console.warn('Firebase Admin verification skipped for isolated test fixtures:', adminError.message);
       // Fallback: Manually decode the JWT payload for local testing (No signature verification)
       try {
         const payloadBase64 = idToken.split('.')[1];
@@ -483,9 +489,10 @@ const phoneLogin = async (req, res) => {
     const { phone, role = 'customer' } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: 'Phone number is required' });
 
-    // Check dev demo phone number first (such as default demo seed 1234567890)
+    const fixtureMode = process.env.NODE_ENV !== 'production' && process.env.TEST_FIXTURES === 'true';
     const cleanPhone = String(phone).trim().replace(/^(\+91|91)/, '').replace(/\D/g, '');
-    const isDevDemo = ['development', 'test'].includes(process.env.NODE_ENV) && (cleanPhone === (process.env.SEED_PHONE || '1234567890') || cleanPhone === '9999999999');
+    const fixturePhone = role === 'driver' ? process.env.SEED_DRIVER_PHONE : process.env.SEED_PHONE;
+    const isDevDemo = fixtureMode && fixturePhone && process.env.SEED_OTP && cleanPhone === fixturePhone;
     if (isDevDemo) {
       return res.status(200).json({ success: true, message: 'Demo OTP sent successfully' });
     }
@@ -503,7 +510,10 @@ const phoneLogin = async (req, res) => {
       const Driver = require('../models/Driver');
       let driver = await Driver.findOne({ where: { phone } });
       if (!driver) {
-        driver = await Driver.create({ phone, name: 'Demo Driver', licenseNumber: 'DL-' + Math.floor(Math.random()*10000) });
+        if (!fixtureMode) {
+          return res.status(404).json({ success: false, message: 'Driver account not found' });
+        }
+        driver = await Driver.create({ phone, name: 'Test Fixture Driver', licenseNumber: `TEST-${crypto.randomBytes(4).toString('hex').toUpperCase()}` });
       }
       userId = driver.id;
     } else {
@@ -571,8 +581,12 @@ const phoneVerify = async (req, res) => {
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || 'Unknown Client';
     
-    // For local development and isolated testing only, allow bypass for the designated seed phone number
-    const isDevDemo = ['development', 'test'].includes(process.env.NODE_ENV) && code === '123456' && (phone === (process.env.SEED_PHONE || '1234567890') || phone === '9999999999');
+    const fixtureMode = process.env.NODE_ENV !== 'production' && process.env.TEST_FIXTURES === 'true';
+    const fixturePhones = userRole === 'driver'
+      ? [process.env.SEED_DRIVER_PHONE, process.env.SEED_PHONE].filter(Boolean)
+      : [process.env.SEED_PHONE].filter(Boolean);
+    const isDevDemo = fixtureMode && fixturePhones.includes(String(phone)) && process.env.SEED_OTP &&
+      String(code) === String(process.env.SEED_OTP);
     
     if (isDevDemo) {
       let userObj;
@@ -582,7 +596,7 @@ const phoneVerify = async (req, res) => {
         const Driver = require('../models/Driver');
         let driver = await Driver.findOne({ where: { phone } });
         if (!driver) {
-          driver = await Driver.create({ phone, name: 'Demo Driver', licenseNumber: 'DL-' + Math.floor(Math.random()*10000) });
+          driver = await Driver.create({ phone, name: 'Test Fixture Driver', licenseNumber: `TEST-${crypto.randomBytes(4).toString('hex').toUpperCase()}` });
         }
         if (acceptedTerms) {
           driver.termsAccepted = true;

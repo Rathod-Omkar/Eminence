@@ -2,6 +2,9 @@ const { Booking, Driver, Vehicle } = require('../models');
 const { tryAcquireAiSlot, executeWithBoundedTimeout } = require('./aiUsageManager');
 let Groq;
 let groqClient = null;
+const getSupportContact = () => process.env.SUPPORT_PHONE
+  ? `call ${process.env.SUPPORT_PHONE}`
+  : 'use the in-app support channel';
 
 const OFF_TOPIC_REFUSAL_MESSAGE = 
   "I am the Eminence Logistics Support Assistant. I can only assist with project-related inquiries such as tracking deliveries, driver details, booking tempos, and platform support. 🚚 How can I help with your shipment or booking today?";
@@ -44,13 +47,13 @@ function checkFaqCache(queryText) {
       "• Small Tempo (Tata Ace / Chhota Hathi): Base ₹350 (payload up to 500kg)\n" +
       "• Medium Tempo (Bolero Maxi Truck): Base ₹550 (payload up to 1200kg)\n" +
       "• Large Tempo (14ft Eicher): Base ₹1200 (payload up to 2500kg)\n\n" +
-      "Standard pricing includes 60 mins loading/unloading window. To book a tempo, please visit the Bookings tab or call +1234567890. 🚚";
+      `Standard pricing includes 60 mins loading/unloading window. To book a tempo, please visit the Bookings tab or ${getSupportContact()}. 🚚`;
   }
 
   // 2. Helpline and Contact numbers
   if (/\b(helpline|customer care|phone number|contact number|support email|call support|emergency)\b/i.test(q)) {
     return "EMINENCE 24/7 Customer Support:\n" +
-      "• Helpline Phone: +91 91723 93084 (Toll-free IVR available 24/7)\n" +
+      `• Support contact: ${getSupportContact()} (24/7 assistance available)\n` +
       "• Support Email: support@eminence.com\n" +
       "• Driver Emergency SOS: Available in the mobile app driver dashboard.";
   }
@@ -60,7 +63,7 @@ function checkFaqCache(queryText) {
     return "EMINENCE Cancellation & Refund Policy:\n" +
       "• Free Cancellation: Zero charge if cancelled within 30 minutes of scheduled booking.\n" +
       "• Instant Wallet Refund: Any advance payments for cancelled trips are immediately credited back to your Eminence Wallet.\n" +
-      "• Once a driver has arrived at the pickup location or the trip is in transit, cancellation must be coordinated via support at +91 91723 93084.";
+      `• Once a driver has arrived at the pickup location or the trip is in transit, cancellation must be coordinated via support (${getSupportContact()}).`;
   }
 
   return null;
@@ -104,13 +107,20 @@ async function handleSupportMessage(customerId, text) {
   }
 
   // 4. Rate Limiting, Concurrency & Daily Quota Guardrail
-  const slot = tryAcquireAiSlot(customerId || 'guest_customer');
+  const slot = process.env.GROQ_API_KEY
+    ? tryAcquireAiSlot(customerId || 'guest_customer')
+    : {
+      allowed: false,
+      reason: 'AI_NOT_CONFIGURED',
+      message: `AI support is temporarily unavailable. Please ${getSupportContact()} for immediate assistance.`
+    };
   if (!slot.allowed) {
-    return slot.message || "AI support is temporarily at capacity. Please call our 24/7 helpline at +1234567890 for immediate assistance. 🚚";
+    return slot.message || `AI support is temporarily at capacity. Please ${getSupportContact()} for immediate assistance. 🚚`;
   }
 
   const startTime = Date.now();
   let outcome = 'error';
+  let outputTokens = 0;
 
   try {
     // 5. Fetch recent context for the customer
@@ -154,7 +164,7 @@ Your tone should be helpful, professional, friendly, and concise.
 
 COMPANY INFORMATION:
 - Platform: Eminence Smart Transport & Local Logistics (Pune & Maharashtra)
-- Helpline Phone: +1234567890 (24/7 IVR System available)
+- Support contact: ${getSupportContact()} (24/7 assistance available)
 - Support Email: support@eminence.com
 - Base Fares:
   * Small Tempo: ₹350 (payload up to 500kg, e.g. Tata Ace)
@@ -165,7 +175,7 @@ ALLOWED LOGISTICS TOPICS ONLY:
 1. Delivery Tracking: If the customer asks "where is delivery" or asks to track a package, check the context below. If no active booking is present in context, ask them for their Booking ID or guide them to the "Tracking" tab.
 2. Driver Information: If the customer asks "who is driver", check the context. If a driver is assigned, state their name. If not assigned, explain that dispatch will appoint a driver shortly.
 3. Rates & Fares: Provide the standard base rates (Small ₹350, Medium ₹550, Large ₹1200).
-4. Cancellation & Support: Explain that cancellations can be made via the dashboard or by contacting the helpline at +1234567890.
+4. Cancellation & Support: Explain that cancellations can be made via the dashboard or by contacting ${getSupportContact()}.
 
 MANDATORY OFF-TOPIC REFUSAL POLICY:
 You are strictly forbidden from answering general knowledge, trivia, coding/programming, mathematics, recipes, creative writing, politics, or unrelated topics.
@@ -180,7 +190,7 @@ ${bookingsContext}
     const client = getGroqClient();
     if (!client) {
       outcome = 'offline_fallback';
-      return "Hello! I am your Eminence Support Assistant. For immediate assistance with bookings, delivery tracking, or driver inquiries, please reach our 24/7 helpline at +1234567890 or email support@eminence.com. 🚚";
+      return `Hello! I am your Eminence Support Assistant. For immediate assistance with bookings, delivery tracking, or driver inquiries, please ${getSupportContact()} or email support@eminence.com. 🚚`;
     }
 
     const preferredModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
@@ -198,12 +208,12 @@ ${bookingsContext}
           max_tokens: 300,
         });
       } catch (err) {
-        // If 429 rate limit or quota error, fail fast without duplicate requests
+        // Never retry client/auth/quota failures; retry only an unknown or 5xx provider failure once.
         const status = err.status || err.statusCode;
-        if (status === 429 || status === 402 || status === 401 || status === 403) {
+        if (status >= 400 && status < 500) {
           throw err;
         }
-        // Fallback model for model-not-found / transient errors
+        await new Promise((resolve) => setTimeout(resolve, 100));
         return await client.chat.completions.create({
           messages: [
             { role: "system", content: systemPrompt },
@@ -217,9 +227,10 @@ ${bookingsContext}
     }, { timeoutMs: 8000, model: preferredModel });
 
     const answer = chatCompletion.choices[0]?.message?.content?.trim();
+    outputTokens = Number(chatCompletion.usage?.completion_tokens) || 0;
     if (!answer) {
       outcome = 'empty_response';
-      return "I'm sorry, but I couldn't generate a response at this time. Please contact support@eminence.com or call +1234567890.";
+      return `I'm sorry, but I couldn't generate a response at this time. Please contact support@eminence.com or ${getSupportContact()}.`;
     }
 
     // Safety guardrail: If the model generated code blocks despite rules, reject it
@@ -235,11 +246,11 @@ ${bookingsContext}
     const isRateLimitOrQuota = error.status === 429 || error.status === 402 || (error.message && error.message.includes('rate limit'));
     if (isRateLimitOrQuota) {
       outcome = 'provider_rate_limited';
-      return "Our AI Support Assistant is temporarily experiencing high demand. For immediate assistance with bookings or tracking, please call our 24/7 helpline at +1234567890. 🚚";
+      return `Our AI Support Assistant is temporarily experiencing high demand. For immediate assistance with bookings or tracking, please ${getSupportContact()}. 🚚`;
     }
     if (error.code === 'AI_TIMEOUT') {
       outcome = 'timeout';
-      return "Our AI assistant timed out while generating your response. Please try again or reach out to our 24/7 helpline at +1234567890. 🚚";
+      return `Our AI assistant timed out while generating your response. Please try again or ${getSupportContact()}. 🚚`;
     }
 
     console.error('Groq LLM Support Bot Error:', error.message || error);
@@ -247,7 +258,13 @@ ${bookingsContext}
     return "I'm currently experiencing some technical difficulties connecting to my AI brain. Please try again later or contact our human support team at support@eminence.com! 🛠️";
   } finally {
     const durationMs = Date.now() - startTime;
-    slot.release({ outcome, durationMs, model: process.env.GROQ_MODEL || 'groq' });
+    slot.release({
+      outcome,
+      durationMs,
+      model: process.env.GROQ_MODEL || 'groq',
+      inputChars: safeText.length,
+      outputTokens
+    });
   }
 }
 

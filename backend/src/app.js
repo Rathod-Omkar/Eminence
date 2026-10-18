@@ -8,6 +8,7 @@ const path = require('path');
 dotenv.config({ path: path.resolve(__dirname, '../.env.local') });
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const helmet = require('helmet');
+const { publicReadLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 
@@ -64,7 +65,7 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Basic route
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', publicReadLimiter, (_req, res) => {
   const mem = process.memoryUsage();
   res.status(200).json({ 
     success: true, 
@@ -75,7 +76,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Public white-label config (no auth required, strictly read-only without side-effects)
-app.get('/api/config', async (_req, res) => {
+app.get('/api/config', publicReadLimiter, async (_req, res) => {
   try {
     const { PlatformConfig } = require('./models');
     const config = await PlatformConfig.findOne();

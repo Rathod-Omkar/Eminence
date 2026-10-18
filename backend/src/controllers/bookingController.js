@@ -785,20 +785,23 @@ const aiVoiceBooking = async (req, res) => {
     console.log(`[AI Agent] Received Voice Transcript: "${safeTranscript}"`);
     
     // Ensure booking is tied to authenticated customer
-    const customerId = req.user?.id || req.body.customerId;
+    const customerId = req.user?.id;
     if (!customerId) {
-      return res.status(401).json({ success: false, message: 'Authentication required: customerId must be provided' });
+      return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
     let extractedData = null;
     const today = new Date().toISOString().split('T')[0];
 
     // Check AI Slot availability (Rate limits, Daily Quotas, Concurrency & Kill Switch)
-    const slot = tryAcquireAiSlot(customerId);
+    const slot = process.env.GROQ_API_KEY
+      ? tryAcquireAiSlot(customerId)
+      : { allowed: false, reason: 'AI_NOT_CONFIGURED' };
 
     if (slot.allowed && process.env.GROQ_API_KEY) {
       const startTime = Date.now();
       let outcome = 'error';
+      let outputTokens = 0;
       const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
 
       try {
@@ -827,12 +830,19 @@ Return exactly a raw JSON object (and nothing else) with these keys:
         }, { timeoutMs: 8000, model: groqModel });
 
         extractedData = JSON.parse(chatCompletion.choices[0].message.content);
+        outputTokens = Number(chatCompletion.usage?.completion_tokens) || 0;
         outcome = 'success';
       } catch (groqErr) {
         outcome = groqErr.code === 'AI_TIMEOUT' ? 'timeout' : 'error';
         console.warn('Groq AI extraction failed, using resilient NLP fallback:', groqErr.message);
       } finally {
-        slot.release({ outcome, durationMs: Date.now() - startTime, model: groqModel });
+        slot.release({
+          outcome,
+          durationMs: Date.now() - startTime,
+          model: groqModel,
+          inputChars: safeTranscript.length,
+          outputTokens
+        });
       }
     } else if (!slot.allowed) {
       console.log(`[AI Booking] AI slot unavailable (${slot.reason}), gracefully falling back to deterministic NLP engine.`);

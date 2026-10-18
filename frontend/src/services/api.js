@@ -1,8 +1,11 @@
 import axios from 'axios';
 import { getToken } from './tokenService';
 
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+const apiBaseUrl = configuredApiUrl || (import.meta.env.DEV ? 'http://localhost:3000' : '');
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000',
+  baseURL: apiBaseUrl,
   timeout: 10000,
   withCredentials: true,
   xsrfCookieName: 'XSRF-TOKEN',

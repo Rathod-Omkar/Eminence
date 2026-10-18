@@ -1,10 +1,12 @@
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_mock',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'mock_secret'
-});
+const isPaymentFixtureMode = process.env.NODE_ENV !== 'production' && process.env.TEST_FIXTURES === 'true';
+const hasRazorpayConfig = Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+const razorpay = hasRazorpayConfig ? new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
+}) : null;
 
 const createOrder = async (req, res) => {
   try {
@@ -31,7 +33,7 @@ const createOrder = async (req, res) => {
     };
     
     // Fallback logic if keys are mock
-    const isMock = process.env.RAZORPAY_KEY_ID === 'rzp_test_mock' || !process.env.RAZORPAY_KEY_ID;
+    const isMock = isPaymentFixtureMode && (!hasRazorpayConfig || process.env.RAZORPAY_KEY_ID === 'rzp_test_mock');
     if (isMock) {
       if (process.env.NODE_ENV === 'production') {
         return res.status(503).json({
@@ -62,7 +64,7 @@ const verifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingId } = req.body;
 
-    const isMock = process.env.RAZORPAY_KEY_ID === 'rzp_test_mock' || !process.env.RAZORPAY_KEY_ID;
+    const isMock = isPaymentFixtureMode && (!hasRazorpayConfig || process.env.RAZORPAY_KEY_ID === 'rzp_test_mock');
     if (isMock) {
       if (process.env.NODE_ENV === 'production') {
         return res.status(503).json({

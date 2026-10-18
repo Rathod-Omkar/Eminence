@@ -46,9 +46,36 @@ const validateEnv = () => {
     errors.push('JWT_SECRET is set to an insecure default placeholder. Please supply a secure random key.');
   }
 
-  // 3. CORS Configuration Notice
-  if (!process.env.CORS_ORIGIN) {
-    console.warn('[CONFIG NOTE] CORS_ORIGIN is not defined in production. Defaulting to standard localhost ports. Set CORS_ORIGIN to your frontend URL.');
+  // 3. CORS Configuration
+  const corsOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
+    : [];
+  if (corsOrigins.length === 0) {
+    errors.push('CORS_ORIGIN is required in production and must list the deployed frontend origin.');
+  } else {
+    for (const origin of corsOrigins) {
+      try {
+        const parsedOrigin = new URL(origin);
+        if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
+          errors.push('CORS_ORIGIN entries must be absolute HTTP(S) origins without paths or query strings.');
+          break;
+        }
+        if (['localhost', '127.0.0.1', '::1'].includes(parsedOrigin.hostname)) {
+          errors.push('CORS_ORIGIN must not contain localhost or loopback origins in production.');
+          break;
+        }
+      } catch {
+        errors.push('CORS_ORIGIN contains an invalid HTTP(S) origin.');
+        break;
+      }
+    }
+  }
+
+  // 4. Payment gateway credentials
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    errors.push('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required in production.');
+  } else if (process.env.RAZORPAY_KEY_ID === 'rzp_test_mock') {
+    errors.push('RAZORPAY_KEY_ID must not use the test/mock payment key in production.');
   }
 
   if (errors.length > 0) {

@@ -227,7 +227,7 @@ export default function CustomerDashboard() {
           setRides(bookingsRes.data.bookings);
         }
       } catch (e) {
-        console.log('Using seeded rides fallback for customer history');
+        console.log('Error fetching customer bookings:', e);
       }
 
       // 2. Fetch Addresses (TC-014)
@@ -266,6 +266,10 @@ export default function CustomerDashboard() {
   };
 
   const handleBuyPro = async () => {
+    if (!(__DEV__ && process.env.EXPO_PUBLIC_ENABLE_TEST_AUTH === 'true')) {
+      Alert.alert('Payment Required', 'Complete payment through the configured provider to activate Pro.');
+      return;
+    }
     setProLoading(true);
     try {
       const orderRes = await api.post('/api/customer/pro/create-order');
@@ -340,6 +344,10 @@ export default function CustomerDashboard() {
   };
 
   const verifyTopUpPayment = async (orderId?: string, amountNum?: number) => {
+    if (!(__DEV__ && process.env.EXPO_PUBLIC_ENABLE_TEST_AUTH === 'true')) {
+      setTopUpError('Payment confirmation must come from the configured provider.');
+      return;
+    }
     const amt = amountNum || parseFloat(topUpAmount);
     const oid = orderId || currentTopUpOrder?.id || ('topup_order_' + Date.now());
 
@@ -463,7 +471,7 @@ export default function CustomerDashboard() {
         <View>
           <Text style={styles.welcomeLabel}>CUSTOMER ACCOUNT</Text>
           <Text style={styles.userName}>{user?.name || 'User'}</Text>
-          <Text style={styles.userPhone}>+91 {user?.phone || '1234567890'}</Text>
+          <Text style={styles.userPhone}>+91 {user?.phone || 'Phone unavailable'}</Text>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Text style={styles.logoutBtnText}>Logout</Text>
